@@ -21,7 +21,7 @@ public class TreeBreakListener implements Listener {
         Block block = event.getBlock();
         if (!isLog(block.getType())) return;
 
-        // проверим, что это нижний блок дерева (под ним не лог)
+        // Проверяем, что это нижний блок дерева (под ним не лог)
         Block below = block.getRelative(BlockFace.DOWN);
         if (isLog(below.getType())) return;
 
@@ -33,13 +33,13 @@ public class TreeBreakListener implements Listener {
 
         World world = block.getWorld();
 
-        // сохраним оригинальные блоки
+        // Сохраняем состояние блоков
         List<BlockStateData> blocks = new ArrayList<>();
         for (Block b : treeBlocks) {
             blocks.add(new BlockStateData(b.getLocation().clone(), b.getBlockData()));
         }
 
-        // удалим оригинальные блоки
+        // Удаляем дерево
         for (Block b : treeBlocks) {
             b.setType(Material.AIR, false);
         }
@@ -51,7 +51,7 @@ public class TreeBreakListener implements Listener {
         Location center = getCenter(treeBlocks);
         List<BlockDisplay> displays = new ArrayList<>();
 
-        // создаём BlockDisplay для каждого блока
+        // Создаём BlockDisplay для каждого блока
         for (BlockStateData data : treeBlocks) {
             try {
                 BlockDisplay display = (BlockDisplay) world.spawnEntity(data.pos, EntityType.BLOCK_DISPLAY);
@@ -60,11 +60,11 @@ public class TreeBreakListener implements Listener {
                 display.setInterpolationDuration(10);
                 displays.add(display);
             } catch (Throwable ignored) {
-                // если Spigot без Display API — пропускаем
+                // старый Spigot без Display API — пропускаем
             }
         }
 
-        // выберем частицу для эффекта падения
+        // Выбираем корректный тип частицы
         Particle particle;
         try {
             particle = Particle.valueOf("BLOCK_CRACK");
@@ -76,36 +76,46 @@ public class TreeBreakListener implements Listener {
             }
         }
 
-        // анимация падения
+        // Переменные, используемые в анонимном классе, объявляем final
+        final World worldFinal = world;
+        final List<BlockDisplay> displaysFinal = displays;
+        final Location centerFinal = center;
+        final Particle particleFinal = particle;
+
         new BukkitRunnable() {
             int tick = 0;
             final Vector velocity = new Vector(0, -0.15, 0);
-            final int duration = 30; // ~1.5 сек
+            final int duration = 30; // ~1.5 секунды
 
             @Override
             public void run() {
                 tick++;
-                for (BlockDisplay d : displays) {
+                for (BlockDisplay d : displaysFinal) {
                     d.teleport(d.getLocation().add(velocity));
                 }
 
-                // Эффекты
                 if (tick % 5 == 0) {
-                    world.spawnParticle(particle, center, 10, 0.4, 0.4, 0.4, Material.OAK_LOG.createBlockData());
-                    world.playSound(center, Sound.BLOCK_WOOD_BREAK, 0.8f, 1.0f);
+                    worldFinal.spawnParticle(
+                            particleFinal,
+                            centerFinal,
+                            10,
+                            0.4,
+                            0.4,
+                            0.4,
+                            Material.OAK_LOG.createBlockData()
+                    );
+                    worldFinal.playSound(centerFinal, Sound.BLOCK_WOOD_BREAK, 0.8f, 1.0f);
                 }
 
                 if (tick >= duration) {
-                    // закончили падение
-                    this.cancel();
-                    landTree(world, displays);
+                    cancel();
+                    landTree(worldFinal, displaysFinal);
                 }
             }
         }.runTaskTimer(TreeFallPlugin.getInstance(), 1L, 1L);
     }
 
     private void landTree(World world, List<BlockDisplay> displays) {
-        // определяем нижнюю точку падения
         int minY = Integer.MAX_VALUE;
         for (BlockDisplay d : displays) {
             int y = d.getLocation().getBlockY();
@@ -114,7 +124,6 @@ public class TreeBreakListener implements Listener {
 
         int dropY = findGroundY(world, displays.get(0).getLocation());
 
-        // ставим дерево на землю и удаляем дисплеи
         for (BlockDisplay d : displays) {
             Location pos = d.getLocation();
             Block target = world.getBlockAt(pos.getBlockX(), dropY + (pos.getBlockY() - minY), pos.getBlockZ());
@@ -126,7 +135,7 @@ public class TreeBreakListener implements Listener {
             d.remove();
         }
 
-        // дроп фруктов / палок из листвы
+        // Лут с листвы
         for (BlockDisplay d : displays) {
             if (isLeaf(d.getBlock().getMaterial())) {
                 dropLeafLoot(world.getBlockAt(d.getLocation()));
@@ -136,8 +145,7 @@ public class TreeBreakListener implements Listener {
 
     private int findGroundY(World world, Location start) {
         int y = start.getBlockY();
-        while (y > world.getMinHeight() &&
-                world.getBlockAt(start.getBlockX(), y - 1, start.getBlockZ()).getType() == Material.AIR) {
+        while (y > world.getMinHeight() && world.getBlockAt(start.getBlockX(), y - 1, start.getBlockZ()).getType() == Material.AIR) {
             y--;
         }
         return y;
@@ -187,7 +195,6 @@ public class TreeBreakListener implements Listener {
         return n.endsWith("_LEAVES") || n.endsWith("_WART_BLOCK");
     }
 
-    /** дроп предметов как при распаде листвы */
     private void dropLeafLoot(Block leaf) {
         World world = leaf.getWorld();
         double saplingChance = 0.05;
