@@ -45,7 +45,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         // Проверяем, что это нижний блок дерева
         Block below = block.getRelative(BlockFace.DOWN);
         if (isLogOrLeaves(below.getType())) {
-            // Если ниже тоже часть дерева — не запускать механику
             return;
         }
 
@@ -63,7 +62,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
 
         event.setDropItems(false);
 
-        // Анимация падения
+        // Анимация падения дерева с частицами
         new BukkitRunnable() {
             int step = 0;
             final Location baseLoc = block.getLocation();
@@ -73,10 +72,18 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                 if (step >= 10) {
                     // После анимации – выпадение лута
                     dropTreeLoot(world, connectedLogs, connectedLeaves);
+
+                    // Большое облако пыли при ударе
+                    world.spawnParticle(Particle.FALLING_DUST,
+                            baseLoc.clone().add(direction.toVector().multiply(5)),
+                            80, 1.8, 1.2, 1.8, 0.02, Material.DIRT.createBlockData());
+                    world.playSound(baseLoc, Sound.BLOCK_WOOD_BREAK, 1f, 0.8f);
+
                     cancel();
                     return;
                 }
 
+                // Вектор смещения падения
                 Location moveVector = direction.toVector()
                         .multiply(step * 0.5)
                         .toLocation(world);
@@ -88,7 +95,28 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                             log.getZ() - block.getZ()
                     ).add(0.5, 0.5, 0.5);
 
-                    world.spawnParticle(Particle.BLOCK, loc, 4, 0, 0, 0, log.getBlockData());
+                    // Частицы опилок (BLOCK_CRACK) — падают вниз
+                    world.spawnParticle(Particle.BLOCK_CRACK, loc, 10,
+                            0.3, 0.3, 0.3, 0.02, log.getBlockData());
+
+                    // Немного пыли, летящей вниз
+                    world.spawnParticle(Particle.FALLING_DUST, loc.clone().add(0, -0.2, 0), 6,
+                            0.5, 0.5, 0.5, 0.01, Material.DIRT.createBlockData());
+                }
+
+                // Частицы падающих листьев
+                for (Block leaf : connectedLeaves) {
+                    if (random.nextDouble() < 0.15) {
+                        Location leafLoc = leaf.getLocation().add(0.5, 0.8, 0.5);
+                        world.spawnParticle(Particle.FALLING_LEAVES,
+                                leafLoc.add(direction.toVector().multiply(step * 0.2)),
+                                2, 0.4, 0.2, 0.4, 0.01);
+                    }
+                }
+
+                // Звук падения дерева
+                if (step % 2 == 0) {
+                    world.playSound(baseLoc, Sound.BLOCK_WOOD_PLACE, 0.4f, 0.6f + step * 0.05f);
                 }
 
                 step++;
@@ -173,31 +201,25 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     private void dropLeafLoot(World world, Block leaf) {
-        double leafDropChance = 0.90; // листья 90%
-        double stickChance = 0.60;    // палки 60%
-        double fruitChance = 0.80;    // плоды 80%
+        double leafDropChance = 0.90;
+        double stickChance = 0.60;
+        double fruitChance = 0.80;
 
         Material sapling = getSaplingForLeaf(leaf.getType());
         Material fruit = getFruitForLeaf(leaf.getType());
 
-        // Листья
         if (random.nextDouble() < leafDropChance) {
-            ItemStack leafItem = new ItemStack(leaf.getType());
-            leafItem.setItemMeta(Bukkit.getItemFactory().getItemMeta(leaf.getType()));
-            world.dropItemNaturally(leaf.getLocation(), leafItem);
+            world.dropItemNaturally(leaf.getLocation(), new ItemStack(leaf.getType()));
         }
 
-        // Саженцы (оставляем дефолтный шанс)
         if (sapling != null && random.nextDouble() < 0.05) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(sapling));
         }
 
-        // Палки
         if (random.nextDouble() < stickChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(Material.STICK));
         }
 
-        // Плоды
         if (fruit != null && random.nextDouble() < fruitChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(fruit));
         }
