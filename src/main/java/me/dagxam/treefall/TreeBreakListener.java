@@ -21,7 +21,7 @@ public class TreeBreakListener implements Listener {
         Block base = event.getBlock();
         if (!isLog(base.getType())) return;
 
-        // проверяем, что это нижний блок
+        // Проверяем, что это нижний блок дерева
         if (isLog(base.getRelative(BlockFace.DOWN).getType())) return;
 
         Set<Block> blocks = new HashSet<>();
@@ -32,13 +32,12 @@ public class TreeBreakListener implements Listener {
     }
 
     private void animateDestruction(World world, Set<Block> blocks) {
-        // разрушение послойно снизу вверх
         Block[] arr = blocks.toArray(new Block[0]);
         for (int i = 0; i < arr.length; i++) {
             final Block b = arr[i];
             new BukkitRunnable() {
                 int step = 0;
-                final int total = 8; // сколько «тресков» перед исчезновением
+                final int total = 8; // сколько "тресков" перед исчезновением
 
                 @Override
                 public void run() {
@@ -47,18 +46,25 @@ public class TreeBreakListener implements Listener {
                         return;
                     }
 
-                    // эффект ломания
-                    world.spawnParticle(Particle.BLOCK_CRACK,
+                    // Используем частицы BLOCK_DUST вместо устаревшего BLOCK_CRACK
+                    world.spawnParticle(
+                            Particle.BLOCK_DUST,
                             b.getLocation().add(0.5, 0.5, 0.5),
-                            10, 0.25, 0.25, 0.25, b.getBlockData());
-                    world.playSound(b.getLocation(),
-                            Sound.BLOCK_WOOD_HIT, 0.5f, 0.9f + random.nextFloat() * 0.2f);
+                            10, 0.25, 0.25, 0.25,
+                            b.getBlockData()
+                    );
+                    world.playSound(
+                            b.getLocation(),
+                            Sound.BLOCK_WOOD_HIT,
+                            0.5f,
+                            0.9f + random.nextFloat() * 0.2f
+                    );
 
                     step++;
                     if (step >= total) {
                         Material m = b.getType();
                         b.setType(Material.AIR);
-                        // выпадение лута
+                        // Выпадающие предметы
                         if (isLog(m)) {
                             world.dropItemNaturally(b.getLocation(), new ItemStack(m));
                         } else if (isLeaf(m)) {
