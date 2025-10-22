@@ -1,4 +1,4 @@
-package me.dagxam.treefallplugin;
+package me.dagxam.treefall;
 
 import org.bukkit.*;
 import org.bukkit.block.Block;
