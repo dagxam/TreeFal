@@ -20,7 +20,7 @@ public class TreeBreakListener implements Listener {
         Block block = event.getBlock();
         if (!isLog(block.getType())) return;
 
-        // Под данными бревном должен быть воздух/трава, а не камень — значит это нижний блок
+        // Под данным бревном должен быть воздух/трава, а не камень — значит это нижний блок
         Block below = block.getRelative(BlockFace.DOWN);
         if (below.getType().isSolid()) return;
 
@@ -74,17 +74,20 @@ public class TreeBreakListener implements Listener {
         Material sapling = getSaplingForLeaf(name);
         Material fruit   = getFruitForLeaf(name);
 
-        if (sapling != null && random.nextDouble() < saplingChance)
+        if (sapling != null && random.nextDouble() < saplingChance) {
             leaf.getWorld().dropItemNaturally(leaf.getLocation(),
                     new org.bukkit.inventory.ItemStack(sapling));
+        }
 
-        if (random.nextDouble() < stickChance)
+        if (random.nextDouble() < stickChance) {
             leaf.getWorld().dropItemNaturally(leaf.getLocation(),
                     new org.bukkit.inventory.ItemStack(Material.STICK));
+        }
 
-        if (fruit != null && random.nextDouble() < fruitChance)
+        if (fruit != null && random.nextDouble() < fruitChance) {
             leaf.getWorld().dropItemNaturally(leaf.getLocation(),
                     new org.bukkit.inventory.ItemStack(fruit));
+        }
     }
 
     private Material getSaplingForLeaf(String leafName) {
@@ -100,8 +103,13 @@ public class TreeBreakListener implements Listener {
     }
 
     private Material getFruitForLeaf(String leafName) {
-        if (leafName.contains("OAK") || leafName.contains("DARK_OAK")) return Material.APPLE;
-        if (leafName.contains("CHERRY")) return Material.CHERRY;
+        if (leafName.contains("OAK") || leafName.contains("DARK_OAK")) {
+            return Material.APPLE;
+        }
+        if (leafName.contains("CHERRY")) {
+            // В игре нет материала CHERRY, используем лепестки сакуры
+            return Material.PINK_PETALS;
+        }
         return null;
     }
 }
