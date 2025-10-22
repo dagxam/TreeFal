@@ -74,41 +74,46 @@ public class TreeBreakListener implements Listener {
     }
 
     private void animateBlock(Block b) {
-        World world = b.getWorld();
-        Location loc = b.getLocation().add(0.5, 0.5, 0.5);
-        Material type = b.getType();
+    World world = b.getWorld();
+    Location loc = b.getLocation().add(0.5, 0.5, 0.5);
+    Material type = b.getType();
 
-        // попытка использовать BlockDisplay (Paper 1.20+)
+    try {
+        BlockDisplay display = (BlockDisplay) world.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
+        display.setBlock(b.getBlockData());
+        display.setViewRange(32);
+        display.setInterpolationDuration(10);
+
+        Vector vel = new Vector(
+                (Math.random() - 0.5) * 0.05,
+                -0.10 - Math.random() * 0.05,
+                (Math.random() - 0.5) * 0.05
+        );
+        display.setVelocity(vel);
+
+        // универсальный вариант частицы
+        Particle particle;
         try {
-            BlockDisplay display = (BlockDisplay) world.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
-            display.setBlock(b.getBlockData());
-            display.setViewRange(32);
-            display.setInterpolationDuration(10);
+            particle = Particle.valueOf("BLOCK_DUST");
+        } catch (IllegalArgumentException ex) {
+            particle = Particle.valueOf("BLOCK_CRACK");
+        }
+        world.spawnParticle(particle, loc, 8, 0.3, 0.3, 0.3, b.getBlockData());
 
-            Vector vel = new Vector(
-                    (Math.random() - 0.5) * 0.05,
-                    -0.10 - Math.random() * 0.05,
-                    (Math.random() - 0.5) * 0.05
-            );
-            display.setVelocity(vel);
+        world.playSound(loc, Sound.BLOCK_WOOD_BREAK, 0.8f, 1.0f);
+        b.setType(Material.AIR);
 
-            world.spawnParticle(Particle.BLOCK_DUST, loc, 8, 0.3, 0.3, 0.3, b.getBlockData());
-            world.playSound(loc, Sound.BLOCK_WOOD_BREAK, 0.8f, 1.0f);
-
+        Bukkit.getScheduler().runTaskLater(TreeFallPlugin.getInstance(), display::remove, 16L);
+    } catch (Throwable t) {
+        // если DisplayEntity не поддерживается
+        if (isLog(type)) {
+            b.breakNaturally();
+        } else if (isLeaf(type)) {
             b.setType(Material.AIR);
-
-            Bukkit.getScheduler().runTaskLater(TreeFallPlugin.getInstance(), display::remove, 16L);
-        } catch (Throwable t) {
-            // если DisplayEntity не поддерживается, обычное разрушение
-            if (isLog(type)) {
-                b.breakNaturally();
-            } else if (isLeaf(type)) {
-                b.setType(Material.AIR);
-                dropLeafLoot(b);
-            }
+            dropLeafLoot(b);
         }
     }
-
+}
     // Дроп предметов из листвы
     private void dropLeafLoot(Block leaf) {
         var cfg = TreeFallPlugin.getInstance().getConfig();
