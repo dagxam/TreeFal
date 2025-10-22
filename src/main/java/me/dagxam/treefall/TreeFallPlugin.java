@@ -1,4 +1,4 @@
-package me.dagxam.treefallplugin;
+package me.dagxam.treefall;
 
 import org.bukkit.*;
 import org.bukkit.block.Block;
@@ -33,7 +33,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         getLogger().info("[TreeFallPlugin] Плагин выключен.");
     }
 
-    // === Основное событие: сруб дерева ===
+    // === Событие слома бревна ===
     @EventHandler
     public void onLogBreak(BlockBreakEvent event) {
         if (event.isCancelled() || event.getPlayer().getGameMode() == GameMode.CREATIVE) return;
@@ -42,11 +42,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Material type = block.getType();
         if (!isLog(type)) return;
 
-        // Проверяем нижний блок
         Block below = block.getRelative(BlockFace.DOWN);
         if (isLogOrLeaves(below.getType())) return;
 
-        // Проверяем, есть ли над блоком часть дерева
         Block above = block.getRelative(BlockFace.UP);
         if (!isLogOrLeaves(above.getType())) return;
 
@@ -55,11 +53,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         List<Block> connectedLeaves = getConnectedLeaves(connectedLogs);
         Direction direction = determineFallDirection(block);
 
-        // Удаляем блоки дерева из мира
         Set<Block> affected = new HashSet<>(connectedLogs);
         affected.addAll(connectedLeaves);
         affected.forEach(b -> b.setType(Material.AIR));
-
         event.setDropItems(false);
 
         new BukkitRunnable() {
@@ -69,10 +65,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             @Override
             public void run() {
                 if (step >= 10) {
-                    // После окончания анимации — лут
                     dropTreeLoot(world, connectedLogs, connectedLeaves);
 
-                    // Всплеск пыли при ударе
+                    // удар о землю с пылью
                     world.spawnParticle(
                             Particle.FALLING_DUST,
                             base.clone().add(direction.toVector().multiply(5)),
@@ -93,15 +88,15 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                                  log.getZ() - block.getZ())
                             .add(0.5, 0.5, 0.5);
 
-                    // Частицы опилок (BLOCK_DUST)
+                    // Пыль или мелкие частицы блока
                     world.spawnParticle(
-                            Particle.BLOCK_DUST,
+                            Particle.BLOCK,
                             loc, 10,
                             0.3, 0.3, 0.3, 0.02,
                             log.getBlockData()
                     );
 
-                    // Немного пыли, «падающей вниз»
+                    // немного осыпающейся пыли вниз
                     world.spawnParticle(
                             Particle.FALLING_DUST,
                             loc.clone().add(0, -0.2, 0),
@@ -110,7 +105,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     );
                 }
 
-                // «Падающие листья» (имитация через FALLING_DUST)
+                // листья
                 for (Block leaf : connectedLeaves) {
                     if (random.nextDouble() < 0.15) {
                         Location leafLoc = leaf.getLocation().add(0.5, 0.8, 0.5);
@@ -123,16 +118,15 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     }
                 }
 
-                if (step % 2 == 0) {
+                if (step % 2 == 0)
                     world.playSound(base, Sound.BLOCK_WOOD_PLACE, 0.4f, 0.6f + step * 0.05f);
-                }
 
                 step++;
             }
         }.runTaskTimer(this, 0L, 2L);
     }
 
-    // === Помощники ===
+    // === Вспомогательные методы ===
 
     private boolean isLog(Material m) {
         return m.name().endsWith("_LOG")
@@ -178,7 +172,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return new ArrayList<>(leaves);
     }
 
-    // === Направление падения ===
     private enum Direction {
         NORTH, SOUTH, EAST, WEST;
         public Vector toVector() {
@@ -197,7 +190,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return dirs.get(random.nextInt(dirs.size()));
     }
 
-    // === Дроп предметов ===
     private void dropTreeLoot(World world, List<Block> logs, List<Block> leaves) {
         for (Block log : logs)
             world.dropItemNaturally(log.getLocation(), new ItemStack(log.getType()));
