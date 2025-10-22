@@ -3,12 +3,11 @@ package me.dagxam.treefallplugin;
 import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
-import org.bukkit.block.data.Waterlogged;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.inventory.ItemStack; // << ДОБАВЛЕНО
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
@@ -43,6 +42,13 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Material type = block.getType();
         if (!isLog(type)) return;
 
+        // Проверяем, что это нижний блок дерева
+        Block below = block.getRelative(BlockFace.DOWN);
+        if (isLogOrLeaves(below.getType())) {
+            // Если ниже тоже часть дерева — не запускать механику
+            return;
+        }
+
         Block above = block.getRelative(BlockFace.UP);
         if (!isLogOrLeaves(above.getType())) return;
 
@@ -65,6 +71,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             @Override
             public void run() {
                 if (step >= 10) {
+                    // После анимации – выпадение лута
                     dropTreeLoot(world, connectedLogs, connectedLeaves);
                     cancel();
                     return;
@@ -81,7 +88,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                             log.getZ() - block.getZ()
                     ).add(0.5, 0.5, 0.5);
 
-                    // ✅ В НОВОМ API используется Particle.BLOCK
                     world.spawnParticle(Particle.BLOCK, loc, 4, 0, 0, 0, log.getBlockData());
                 }
 
@@ -90,7 +96,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         }.runTaskTimer(this, 0L, 2L);
     }
 
-    // === Вспомогательные функции ===
+    // === Проверки ===
     private boolean isLog(Material m) {
         return m.name().endsWith("_LOG") ||
                m.name().endsWith("_STEM") ||
@@ -101,6 +107,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return isLog(m) || m.name().endsWith("_LEAVES");
     }
 
+    // === Поиск связанных блоков ===
     private List<Block> getConnectedLogs(Block start) {
         List<Block> found = new ArrayList<>();
         Queue<Block> q = new LinkedList<>();
@@ -137,6 +144,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return new ArrayList<>(leaves);
     }
 
+    // === Направление падения ===
     private enum Direction { NORTH, SOUTH, EAST, WEST;
         public Vector toVector() {
             switch (this) {
@@ -154,7 +162,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return dirs.get(random.nextInt(dirs.size()));
     }
 
-    // === Лут ===
+    // === Выпадение лута ===
     private void dropTreeLoot(World world, List<Block> logs, List<Block> leaves) {
         for (Block log : logs) {
             world.dropItemNaturally(log.getLocation(), new ItemStack(log.getType()));
@@ -165,37 +173,36 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     private void dropLeafLoot(World world, Block leaf) {
-        double saplingChance = 0.05;
-        double stickChance = 0.02;
-        double fruitChance = 0.01;
+        double leafDropChance = 0.90; // листья 90%
+        double stickChance = 0.60;    // палки 60%
+        double fruitChance = 0.80;    // плоды 80%
 
         Material sapling = getSaplingForLeaf(leaf.getType());
         Material fruit = getFruitForLeaf(leaf.getType());
 
-        if (random.nextDouble() < 0.8) {
+        // Листья
+        if (random.nextDouble() < leafDropChance) {
             ItemStack leafItem = new ItemStack(leaf.getType());
             leafItem.setItemMeta(Bukkit.getItemFactory().getItemMeta(leaf.getType()));
             world.dropItemNaturally(leaf.getLocation(), leafItem);
         }
 
-        if (sapling != null && random.nextDouble() < saplingChance) {
+        // Саженцы (оставляем дефолтный шанс)
+        if (sapling != null && random.nextDouble() < 0.05) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(sapling));
         }
 
+        // Палки
         if (random.nextDouble() < stickChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(Material.STICK));
         }
 
-        if (leaf.getType().name().matches(".*(OAK|CHERRY|JUNGLE).*")) {
-            fruitChance = 0.08;
-        }
-
+        // Плоды
         if (fruit != null && random.nextDouble() < fruitChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(fruit));
         }
     }
 
-    // соответствие листвы и саженца
     private Material getSaplingForLeaf(Material leafType) {
         switch (leafType) {
             case OAK_LEAVES:       return Material.OAK_SAPLING;
@@ -210,12 +217,10 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    // соответствие листвы и фрукта
     private Material getFruitForLeaf(Material leafType) {
         String name = leafType.name().toLowerCase();
         if (name.contains("oak"))      return Material.APPLE;
-        if (name.contains("cherry"))   {
-            // ✅ Проверяем, существует ли такой материал
+        if (name.contains("cherry")) {
             Material m = Material.matchMaterial("CHERRY");
             return (m != null) ? m : Material.SWEET_BERRIES;
         }
