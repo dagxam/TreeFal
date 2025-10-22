@@ -33,7 +33,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         getLogger().info("[TreeFallPlugin] Плагин выключен.");
     }
 
-    // === Событие слома бревна ===
     @EventHandler
     public void onLogBreak(BlockBreakEvent event) {
         if (event.isCancelled() || event.getPlayer().getGameMode() == GameMode.CREATIVE) return;
@@ -53,15 +52,16 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         List<Block> connectedLogs = getConnectedLogs(block);
         List<Block> connectedLeaves = getConnectedLeavesWide(connectedLogs, 6);
 
-        // сохраняем типы до удаления
         Map<Block, Material> logTypes = connectedLogs.stream()
                 .collect(Collectors.toMap(b -> b, Block::getType));
         Map<Block, Material> leafTypes = connectedLeaves.stream()
                 .collect(Collectors.toMap(b -> b, Block::getType));
 
+        // Определяем основную листву (по первому бревну)
+        Material mainLeaf = getLeafForLog(type);
+
         Direction direction = determineFallDirection(block);
 
-        // удаляем блоки
         Set<Block> affected = new HashSet<>(connectedLogs);
         affected.addAll(connectedLeaves);
         affected.forEach(b -> b.setType(Material.AIR));
@@ -75,13 +75,10 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             @Override
             public void run() {
                 if (step >= 10) {
-                    dropTreeLoot(world, logTypes, leafTypes);
-
-                    world.spawnParticle(
-                            Particle.FALLING_DUST,
+                    dropTreeLoot(world, logTypes, leafTypes, mainLeaf);
+                    world.spawnParticle(Particle.FALLING_DUST,
                             base.clone().add(direction.toVector().multiply(5)),
-                            80, 1.8, 1.2, 1.8, 0.02, Material.DIRT.createBlockData()
-                    );
+                            80, 1.8, 1.2, 1.8, 0.02, Material.DIRT.createBlockData());
                     world.playSound(base, Sound.BLOCK_WOOD_BREAK, 1f, 0.8f);
                     cancel();
                     return;
@@ -167,7 +164,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return found.stream().limit(config.getInt("max-tree-size", 1200)).collect(Collectors.toList());
     }
 
-    // расширенный поиск листвы
     private List<Block> getConnectedLeavesWide(List<Block> logs, int radius) {
         Set<Block> leaves = new HashSet<>();
         for (Block log : logs) {
@@ -202,36 +198,36 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return dirs.get(random.nextInt(dirs.size()));
     }
 
-    // дроп с сохранёнными типами
-    private void dropTreeLoot(World world, Map<Block, Material> logs, Map<Block, Material> leaves) {
+    private void dropTreeLoot(World world, Map<Block, Material> logs, Map<Block, Material> leaves, Material mainLeaf) {
         for (Map.Entry<Block, Material> entry : logs.entrySet()) {
             world.dropItemNaturally(entry.getKey().getLocation(), new ItemStack(entry.getValue()));
         }
         for (Map.Entry<Block, Material> entry : leaves.entrySet()) {
-            dropLeafLoot(world, entry.getKey().getLocation(), entry.getValue());
+            if (entry.getValue() == mainLeaf)
+                dropLeafLoot(world, entry.getKey().getLocation(), entry.getValue());
         }
     }
 
-    // дроп листвы/саженцев/плодов
     private void dropLeafLoot(World world, Location loc, Material leafType) {
-        double stickChance = 0.6;
-        double fruitChance = 0.8;
+    // новые фиксированные вероятности
+    double stickChance = 0.26; // 26 %
+    double fruitChance = 0.16; // 16 %
 
-        Material sapling = getSaplingForLeaf(leafType);
-        Material fruit   = getFruitForLeaf(leafType);
+    Material sapling = getSaplingForLeaf(leafType);
+    Material fruit   = getFruitForLeaf(leafType);
 
-        if (random.nextDouble() < 0.35)
-            world.dropItemNaturally(loc, new ItemStack(leafType));
+    if (random.nextDouble() < 0.35)
+        world.dropItemNaturally(loc, new ItemStack(leafType));
 
-        if (sapling != null && random.nextDouble() < 0.05)
-            world.dropItemNaturally(loc, new ItemStack(sapling));
+    if (sapling != null && random.nextDouble() < 0.05)
+        world.dropItemNaturally(loc, new ItemStack(sapling));
 
-        if (random.nextDouble() < stickChance)
-            world.dropItemNaturally(loc, new ItemStack(Material.STICK));
+    if (random.nextDouble() < stickChance)
+        world.dropItemNaturally(loc, new ItemStack(Material.STICK));
 
-        if (fruit != null && random.nextDouble() < fruitChance)
-            world.dropItemNaturally(loc, new ItemStack(fruit));
-    }
+    if (fruit != null && random.nextDouble() < fruitChance)
+        world.dropItemNaturally(loc, new ItemStack(fruit));
+}
 
     private Material getSaplingForLeaf(Material type) {
         switch (type) {
@@ -245,6 +241,22 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             case CHERRY_LEAVES:    return Material.CHERRY_SAPLING;
             default:               return null;
         }
+    }
+
+    // связь бревна и листвы
+    private Material getLeafForLog(Material log) {
+        String name = log.name().toLowerCase();
+        if (name.contains("oak") && !name.contains("dark")) return Material.OAK_LEAVES;
+        if (name.contains("dark_oak")) return Material.DARK_OAK_LEAVES;
+        if (name.contains("birch"))    return Material.BIRCH_LEAVES;
+        if (name.contains("spruce"))   return Material.SPRUCE_LEAVES;
+        if (name.contains("jungle"))   return Material.JUNGLE_LEAVES;
+        if (name.contains("acacia"))   return Material.ACACIA_LEAVES;
+        if (name.contains("mangrove")) return Material.MANGROVE_LEAVES;
+        if (name.contains("cherry"))   return Material.CHERRY_LEAVES;
+        if (name.contains("crimson"))  return Material.NETHER_WART_BLOCK;
+        if (name.contains("warped"))   return Material.WARPED_WART_BLOCK;
+        return Material.OAK_LEAVES;
     }
 
     private Material getFruitForLeaf(Material leafType) {
