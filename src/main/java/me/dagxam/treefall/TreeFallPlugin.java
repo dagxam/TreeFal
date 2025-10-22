@@ -209,26 +209,30 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     private void dropLeafLoot(World world, Location loc, Material leafType) {
-    // новые фиксированные вероятности
-    double stickChance = 0.26; // 26 %
-    double fruitChance = 0.16; // 16 %
+    // Вероятности дропа
+    double stickChance  = 0.08; // 8 %
+    double fruitChance  = 0.07; // 7 %
+    double saplingChance = 0.06; // 6 %
 
     Material sapling = getSaplingForLeaf(leafType);
     Material fruit   = getFruitForLeaf(leafType);
 
+    // Дроп листьев (сама листва)
     if (random.nextDouble() < 0.35)
         world.dropItemNaturally(loc, new ItemStack(leafType));
 
-    if (sapling != null && random.nextDouble() < 0.05)
+    // Дроп саженцев (новое значение 6%)
+    if (sapling != null && random.nextDouble() < saplingChance)
         world.dropItemNaturally(loc, new ItemStack(sapling));
 
+    // Дроп палок
     if (random.nextDouble() < stickChance)
         world.dropItemNaturally(loc, new ItemStack(Material.STICK));
 
+    // Дроп плодов
     if (fruit != null && random.nextDouble() < fruitChance)
         world.dropItemNaturally(loc, new ItemStack(fruit));
 }
-
     private Material getSaplingForLeaf(Material type) {
         switch (type) {
             case OAK_LEAVES:       return Material.OAK_SAPLING;
