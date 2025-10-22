@@ -1,5 +1,5 @@
 name: TreeFall
-main: me.example.treefall.TreeFallPlugin
+main: me.dagxam.treefall.TreeFallPlugin
 version: 1.3
 api-version: '1.21'
 author: YourName
