@@ -1,4 +1,4 @@
-nname: Build with Maven (Java 21)
+name: Build with Maven (Java 21)
 
 on:
   push:
