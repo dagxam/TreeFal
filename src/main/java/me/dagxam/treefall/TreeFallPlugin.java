@@ -8,8 +8,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.inventory.ItemStack; // << ДОБАВЛЕНО
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -39,9 +41,8 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
 
         Block block = event.getBlock();
         Material type = block.getType();
-        if (!isLog(type)) return; // не дерево
+        if (!isLog(type)) return;
 
-        // Проверяем, что сверху действительно дерево
         Block above = block.getRelative(BlockFace.UP);
         if (!isLogOrLeaves(above.getType())) return;
 
@@ -50,14 +51,13 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         List<Block> connectedLeaves = getConnectedLeaves(connectedLogs);
         Direction direction = determineFallDirection(block);
 
-        // удаляем все связанные блоки
         Set<Block> affectedBlocks = new HashSet<>(connectedLogs);
         affectedBlocks.addAll(connectedLeaves);
         affectedBlocks.forEach(b -> b.setType(Material.AIR));
 
         event.setDropItems(false);
 
-        // Анимация падения и выпадение лута
+        // Анимация падения
         new BukkitRunnable() {
             int step = 0;
             final Location baseLoc = block.getLocation();
@@ -65,13 +65,15 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             @Override
             public void run() {
                 if (step >= 10) {
-                    // В конце выдаём лут
                     dropTreeLoot(world, connectedLogs, connectedLeaves);
                     cancel();
                     return;
                 }
 
-                Location moveVector = direction.toVector().multiply(step * 0.5).toLocation(world);
+                Location moveVector = direction.toVector()
+                        .multiply(step * 0.5)
+                        .toLocation(world);
+
                 for (Block log : connectedLogs) {
                     Location loc = baseLoc.clone().add(moveVector).add(
                             log.getX() - block.getX(),
@@ -79,7 +81,8 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                             log.getZ() - block.getZ()
                     ).add(0.5, 0.5, 0.5);
 
-                    world.spawnParticle(Particle.BLOCK_CRACK, loc, 4, 0, 0, 0, log.getBlockData());
+                    // ✅ В НОВОМ API используется Particle.BLOCK
+                    world.spawnParticle(Particle.BLOCK, loc, 4, 0, 0, 0, log.getBlockData());
                 }
 
                 step++;
@@ -87,7 +90,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         }.runTaskTimer(this, 0L, 2L);
     }
 
-    // === Вспомогательные функции поиска ===
+    // === Вспомогательные функции ===
     private boolean isLog(Material m) {
         return m.name().endsWith("_LOG") ||
                m.name().endsWith("_STEM") ||
@@ -134,15 +137,14 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return new ArrayList<>(leaves);
     }
 
-    // === Направление падения ===
     private enum Direction { NORTH, SOUTH, EAST, WEST;
-        public org.bukkit.util.Vector toVector() {
+        public Vector toVector() {
             switch (this) {
-                case NORTH: return new org.bukkit.util.Vector(0, 0, -1);
-                case SOUTH: return new org.bukkit.util.Vector(0, 0, 1);
-                case EAST:  return new org.bukkit.util.Vector(1, 0, 0);
-                case WEST:  return new org.bukkit.util.Vector(-1, 0, 0);
-                default: return new org.bukkit.util.Vector(0, 0, 0);
+                case NORTH: return new Vector(0, 0, -1);
+                case SOUTH: return new Vector(0, 0, 1);
+                case EAST:  return new Vector(1, 0, 0);
+                case WEST:  return new Vector(-1, 0, 0);
+                default:    return new Vector(0, 0, 0);
             }
         }
     }
@@ -170,29 +172,24 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Material sapling = getSaplingForLeaf(leaf.getType());
         Material fruit = getFruitForLeaf(leaf.getType());
 
-        // лиственный блок (80%)
         if (random.nextDouble() < 0.8) {
             ItemStack leafItem = new ItemStack(leaf.getType());
             leafItem.setItemMeta(Bukkit.getItemFactory().getItemMeta(leaf.getType()));
             world.dropItemNaturally(leaf.getLocation(), leafItem);
         }
 
-        // саженец
         if (sapling != null && random.nextDouble() < saplingChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(sapling));
         }
 
-        // палка
         if (random.nextDouble() < stickChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(Material.STICK));
         }
 
-        // увеличиваем шанс для плодовых пород
         if (leaf.getType().name().matches(".*(OAK|CHERRY|JUNGLE).*")) {
             fruitChance = 0.08;
         }
 
-        // плод
         if (fruit != null && random.nextDouble() < fruitChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(fruit));
         }
@@ -217,7 +214,11 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     private Material getFruitForLeaf(Material leafType) {
         String name = leafType.name().toLowerCase();
         if (name.contains("oak"))      return Material.APPLE;
-        if (name.contains("cherry"))   return Material.CHERRY;
+        if (name.contains("cherry"))   {
+            // ✅ Проверяем, существует ли такой материал
+            Material m = Material.matchMaterial("CHERRY");
+            return (m != null) ? m : Material.SWEET_BERRIES;
+        }
         if (name.contains("jungle"))   return Material.COCOA_BEANS;
         if (name.contains("mangrove")) return Material.MANGROVE_PROPAGULE;
         if (name.contains("crimson"))  return Material.CRIMSON_FUNGUS;
