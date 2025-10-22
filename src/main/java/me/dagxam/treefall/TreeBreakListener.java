@@ -21,7 +21,7 @@ public class TreeBreakListener implements Listener {
         Block base = event.getBlock();
         if (!isLog(base.getType())) return;
 
-        // Проверяем, что это нижний блок дерева
+        // проверяем, что под ним не другой лог
         if (isLog(base.getRelative(BlockFace.DOWN).getType())) return;
 
         Set<Block> blocks = new HashSet<>();
@@ -37,7 +37,7 @@ public class TreeBreakListener implements Listener {
             final Block b = arr[i];
             new BukkitRunnable() {
                 int step = 0;
-                final int total = 8; // сколько "тресков" перед исчезновением
+                final int total = 8;
 
                 @Override
                 public void run() {
@@ -46,9 +46,9 @@ public class TreeBreakListener implements Listener {
                         return;
                     }
 
-                    // Используем частицы BLOCK_DUST вместо устаревшего BLOCK_CRACK
+                    // безопасный вариант частицы: Particle.BLOCK
                     world.spawnParticle(
-                            Particle.BLOCK_DUST,
+                            Particle.BLOCK,
                             b.getLocation().add(0.5, 0.5, 0.5),
                             10, 0.25, 0.25, 0.25,
                             b.getBlockData()
@@ -64,7 +64,6 @@ public class TreeBreakListener implements Listener {
                     if (step >= total) {
                         Material m = b.getType();
                         b.setType(Material.AIR);
-                        // Выпадающие предметы
                         if (isLog(m)) {
                             world.dropItemNaturally(b.getLocation(), new ItemStack(m));
                         } else if (isLeaf(m)) {
