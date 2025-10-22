@@ -14,7 +14,6 @@ import org.bukkit.util.Vector;
 import java.util.*;
 
 public class TreeBreakListener implements Listener {
-
     private final Random random = new Random();
 
     @EventHandler
@@ -22,32 +21,131 @@ public class TreeBreakListener implements Listener {
         Block block = event.getBlock();
         if (!isLog(block.getType())) return;
 
-        // Под данным бревном должен быть воздух/трава, а не камень — значит это нижний блок
+        // Проверим, что это нижний блок дерева: под ним не лог
         Block below = block.getRelative(BlockFace.DOWN);
-        if (below.getType().isSolid()) return;
+        if (isLog(below.getType())) return;
 
-        int maxBlocks = TreeFallPlugin.getInstance().getConfig().getInt("max-blocks", 512);
+        int maxBlocks = 512;
 
         Set<Block> treeBlocks = new HashSet<>();
         findTree(block, treeBlocks, new HashSet<>(), 0, maxBlocks);
+        if (treeBlocks.isEmpty()) return;
 
-        // Сортируем сверху вниз для эффекта "падения"
-        List<Block> blocks = new ArrayList<>(treeBlocks);
-        blocks.sort(Comparator.comparingInt(Block::getY).reversed());
+        World world = block.getWorld();
 
-        int delay = 0;
-        for (Block b : blocks) {
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    Material type = b.getType();
-                    if (isLog(type) || isLeaf(type)) {
-                        animateBlock(b);
-                    }
-                }
-            }.runTaskLater(TreeFallPlugin.getInstance(), delay);
-            delay += 3; // каждые 3 тика ≈0.15 с
+        // Сохраняем оригинальные блоки
+        List<BlockStateData> blocks = new ArrayList<>();
+        for (Block b : treeBlocks) {
+            blocks.add(new BlockStateData(b.getLocation().clone(), b.getBlockData()));
         }
+
+        // Удаляем оригинальные блоки
+        for (Block b : treeBlocks) {
+            b.setType(Material.AIR, false);
+        }
+
+        playFallAnimation(world, blocks);
+    }
+
+    private void playFallAnimation(World world, List<BlockStateData> treeBlocks) {
+        Location center = getCenter(treeBlocks);
+        List<BlockDisplay> displays = new ArrayList<>();
+
+        // создаём дисплеи для каждого блока
+        for (BlockStateData data : treeBlocks) {
+            try {
+                BlockDisplay display = (BlockDisplay) world.spawnEntity(data.pos, EntityType.BLOCK_DISPLAY);
+                display.setBlock(data.data);
+                display.setViewRange(32);
+                display.setInterpolationDuration(10);
+                displays.add(display);
+            } catch (Throwable ignored) {
+                // если Spigot — без анимации
+            }
+        }
+
+        // анимация падения
+        new BukkitRunnable() {
+            int tick = 0;
+            final Vector velocity = new Vector(0, -0.15, 0);
+            final int duration = 30; // ~1.5 сек
+
+            @Override
+            public void run() {
+                tick++;
+                for (BlockDisplay d : displays) {
+                    d.teleport(d.getLocation().add(velocity));
+                }
+
+                // Эффекты
+                if (tick % 5 == 0) {
+                    world.spawnParticle(Particle.BLOCK_CRACK, center, 10, 0.4, 0.4, 0.4, Material.OAK_LOG.createBlockData());
+                    world.playSound(center, Sound.BLOCK_WOOD_BREAK, 0.8f, 1.0f);
+                }
+
+                if (tick >= duration) {
+                    // закончили падение
+                    this.cancel();
+                    landTree(world, displays);
+                }
+            }
+        }.runTaskTimer(TreeFallPlugin.getInstance(), 1L, 1L);
+    }
+
+    private void landTree(World world, List<BlockDisplay> displays) {
+        // Проверяем, на какой "высоте" можно поставить дерево
+        int minY = Integer.MAX_VALUE;
+        for (BlockDisplay d : displays) {
+            int y = d.getLocation().getBlockY();
+            if (y < minY) minY = y;
+        }
+
+        int dropY = findGroundY(world, displays.get(0).getLocation());
+
+        // Ставим дерево на землю и удаляем дисплеи
+        for (BlockDisplay d : displays) {
+            Location pos = d.getLocation();
+            Block target = world.getBlockAt(pos.getBlockX(), dropY + (pos.getBlockY() - minY), pos.getBlockZ());
+            try {
+                if (isLog(d.getBlock().getMaterial()) || isLeaf(d.getBlock().getMaterial())) {
+                    target.setBlockData(d.getBlock());
+                }
+            } catch (Throwable ignored) {}
+            d.remove();
+        }
+
+        // Дроп фруктов/палок из листвы
+        for (BlockDisplay d : displays) {
+            if (isLeaf(d.getBlock().getMaterial())) {
+                dropLeafLoot(world.getBlockAt(d.getLocation()));
+            }
+        }
+    }
+
+    private int findGroundY(World world, Location start) {
+        int y = start.getBlockY();
+        while (y > world.getMinHeight() && world.getBlockAt(start.getBlockX(), y - 1, start.getBlockZ()).getType() == Material.AIR) {
+            y--;
+        }
+        return y;
+    }
+
+    private static class BlockStateData {
+        Location pos;
+        org.bukkit.block.data.BlockData data;
+        BlockStateData(Location pos, org.bukkit.block.data.BlockData data) {
+            this.pos = pos;
+            this.data = data;
+        }
+    }
+
+    private Location getCenter(List<BlockStateData> blocks) {
+        double x=0, y=0, z=0;
+        for (BlockStateData b : blocks) {
+            x += b.pos.getX(); y += b.pos.getY(); z += b.pos.getZ();
+        }
+        return blocks.isEmpty() ? new Location(Bukkit.getWorlds().get(0), 0,0,0)
+                : new Location(blocks.get(0).pos.getWorld(), x/blocks.size(), y/blocks.size(), z/blocks.size());
     }
 
     private void findTree(Block start, Set<Block> found, Set<Block> visited, int depth, int max) {
@@ -56,8 +154,8 @@ public class TreeBreakListener implements Listener {
 
         Material type = start.getType();
         if (!isLog(type) && !isLeaf(type)) return;
-
         found.add(start);
+
         for (BlockFace face : BlockFace.values()) {
             findTree(start.getRelative(face), found, visited, depth + 1, max);
         }
@@ -73,71 +171,25 @@ public class TreeBreakListener implements Listener {
         return n.endsWith("_LEAVES") || n.endsWith("_WART_BLOCK");
     }
 
-    private void animateBlock(Block b) {
-    World world = b.getWorld();
-    Location loc = b.getLocation().add(0.5, 0.5, 0.5);
-    Material type = b.getType();
-
-    try {
-        BlockDisplay display = (BlockDisplay) world.spawnEntity(loc, EntityType.BLOCK_DISPLAY);
-        display.setBlock(b.getBlockData());
-        display.setViewRange(32);
-        display.setInterpolationDuration(10);
-
-        Vector vel = new Vector(
-                (Math.random() - 0.5) * 0.05,
-                -0.10 - Math.random() * 0.05,
-                (Math.random() - 0.5) * 0.05
-        );
-        display.setVelocity(vel);
-
-        // универсальный вариант частицы
-        Particle particle;
-        try {
-            particle = Particle.valueOf("BLOCK_DUST");
-        } catch (IllegalArgumentException ex) {
-            particle = Particle.valueOf("BLOCK_CRACK");
-        }
-        world.spawnParticle(particle, loc, 8, 0.3, 0.3, 0.3, b.getBlockData());
-
-        world.playSound(loc, Sound.BLOCK_WOOD_BREAK, 0.8f, 1.0f);
-        b.setType(Material.AIR);
-
-        Bukkit.getScheduler().runTaskLater(TreeFallPlugin.getInstance(), display::remove, 16L);
-    } catch (Throwable t) {
-        // если DisplayEntity не поддерживается
-        if (isLog(type)) {
-            b.breakNaturally();
-        } else if (isLeaf(type)) {
-            b.setType(Material.AIR);
-            dropLeafLoot(b);
-        }
-    }
-}
-    // Дроп предметов из листвы
+    /** Дроп предметов как при распаде листвы */
     private void dropLeafLoot(Block leaf) {
-        var cfg = TreeFallPlugin.getInstance().getConfig();
-        double saplingChance = cfg.getDouble("drop.sapling", 0.05);
-        double stickChance   = cfg.getDouble("drop.stick", 0.02);
-        double fruitChance   = cfg.getDouble("drop.fruit", 0.01);
+        World world = leaf.getWorld();
+        double saplingChance = 0.05;
+        double stickChance   = 0.02;
+        double fruitChance   = 0.01;
 
         String name = leaf.getType().name();
         Material sapling = getSaplingForLeaf(name);
         Material fruit   = getFruitForLeaf(name);
 
         if (sapling != null && random.nextDouble() < saplingChance) {
-            leaf.getWorld().dropItemNaturally(leaf.getLocation(),
-                    new org.bukkit.inventory.ItemStack(sapling));
+            world.dropItemNaturally(leaf.getLocation(), new org.bukkit.inventory.ItemStack(sapling));
         }
-
         if (random.nextDouble() < stickChance) {
-            leaf.getWorld().dropItemNaturally(leaf.getLocation(),
-                    new org.bukkit.inventory.ItemStack(Material.STICK));
+            world.dropItemNaturally(leaf.getLocation(), new org.bukkit.inventory.ItemStack(Material.STICK));
         }
-
         if (fruit != null && random.nextDouble() < fruitChance) {
-            leaf.getWorld().dropItemNaturally(leaf.getLocation(),
-                    new org.bukkit.inventory.ItemStack(fruit));
+            world.dropItemNaturally(leaf.getLocation(), new org.bukkit.inventory.ItemStack(fruit));
         }
     }
 
@@ -158,7 +210,6 @@ public class TreeBreakListener implements Listener {
             return Material.APPLE;
         }
         if (leafName.contains("CHERRY")) {
-            // В игре нет CHERRY, используем лепестки сакуры
             return Material.PINK_PETALS;
         }
         return null;
