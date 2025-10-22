@@ -1,0 +1,6 @@
+name: TreeFall
+main: me.example.treefall.TreeFallPlugin
+version: 1.3
+api-version: '1.21'
+author: YourName
+description: Валит дерево, дропает саженцы, палочки и плоды из листвы с настраиваемыми шансами.
