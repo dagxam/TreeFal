@@ -1,6 +1,6 @@
 name: TreeFall
 version: 1.3
-main: me.dagxam.treefallplugin.TreeFallPlugin
+main: me.dagxam.treefall.TreeFallPlugin
 api-version: 1.21
 author: Dagxam
 description: Makes trees fall gradually when chopped.
