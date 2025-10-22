@@ -87,20 +87,32 @@ public class TreeBreakListener implements Listener {
         }
     }
 
+    // изменённая версия
     private void dropLeafLoot(World world, Block leaf) {
-        double saplingChance = 0.05;
-        double stickChance = 0.02;
-        double fruitChance = 0.01;
+        double saplingChance = 0.05;     // шанс саженца
+        double stickChance = 0.02;       // шанс палки
+        double fruitChance = 0.01;       // шанс плодов
+        double leafBlockChance = 0.20;   // шанс выпадения блока листвы
 
         Material sapling = getSaplingForLeaf(leaf.getType());
         Material fruit = getFruitForLeaf(leaf.getType());
 
+        // выпадение блока листвы
+        if (random.nextDouble() < leafBlockChance) {
+            world.dropItemNaturally(leaf.getLocation(), new ItemStack(leaf.getType(), 1));
+        }
+
+        // выпадение саженца
         if (sapling != null && random.nextDouble() < saplingChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(sapling));
         }
+
+        // выпадение палки
         if (random.nextDouble() < stickChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(Material.STICK));
         }
+
+        // выпадение плода
         if (fruit != null && random.nextDouble() < fruitChance) {
             world.dropItemNaturally(leaf.getLocation(), new ItemStack(fruit));
         }
