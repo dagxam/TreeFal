@@ -49,13 +49,23 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         if (!isLogOrLeaves(above.getType())) return;
 
         World world = event.getPlayer().getWorld();
+
         List<Block> connectedLogs = getConnectedLogs(block);
-        List<Block> connectedLeaves = getConnectedLeaves(connectedLogs);
+        List<Block> connectedLeaves = getConnectedLeavesWide(connectedLogs, 6);
+
+        // сохраняем типы до удаления
+        Map<Block, Material> logTypes = connectedLogs.stream()
+                .collect(Collectors.toMap(b -> b, Block::getType));
+        Map<Block, Material> leafTypes = connectedLeaves.stream()
+                .collect(Collectors.toMap(b -> b, Block::getType));
+
         Direction direction = determineFallDirection(block);
 
+        // удаляем блоки
         Set<Block> affected = new HashSet<>(connectedLogs);
         affected.addAll(connectedLeaves);
         affected.forEach(b -> b.setType(Material.AIR));
+
         event.setDropItems(false);
 
         new BukkitRunnable() {
@@ -65,9 +75,8 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             @Override
             public void run() {
                 if (step >= 10) {
-                    dropTreeLoot(world, connectedLogs, connectedLeaves);
+                    dropTreeLoot(world, logTypes, leafTypes);
 
-                    // удар о землю с пылью
                     world.spawnParticle(
                             Particle.FALLING_DUST,
                             base.clone().add(direction.toVector().multiply(5)),
@@ -88,15 +97,13 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                                  log.getZ() - block.getZ())
                             .add(0.5, 0.5, 0.5);
 
-                    // Пыль или мелкие частицы блока
                     world.spawnParticle(
                             Particle.BLOCK,
                             loc, 10,
                             0.3, 0.3, 0.3, 0.02,
-                            log.getBlockData()
+                            logTypes.get(log).createBlockData()
                     );
 
-                    // немного осыпающейся пыли вниз
                     world.spawnParticle(
                             Particle.FALLING_DUST,
                             loc.clone().add(0, -0.2, 0),
@@ -105,7 +112,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     );
                 }
 
-                // листья
                 for (Block leaf : connectedLeaves) {
                     if (random.nextDouble() < 0.15) {
                         Location leafLoc = leaf.getLocation().add(0.5, 0.8, 0.5);
@@ -113,7 +119,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                                 Particle.FALLING_DUST,
                                 leafLoc.add(direction.toVector().multiply(step * 0.2)),
                                 5, 0.4, 0.2, 0.4, 0.01,
-                                leaf.getBlockData()
+                                leafTypes.get(leaf).createBlockData()
                         );
                     }
                 }
@@ -161,12 +167,18 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return found.stream().limit(config.getInt("max-tree-size", 1200)).collect(Collectors.toList());
     }
 
-    private List<Block> getConnectedLeaves(List<Block> logs) {
+    // расширенный поиск листвы
+    private List<Block> getConnectedLeavesWide(List<Block> logs, int radius) {
         Set<Block> leaves = new HashSet<>();
         for (Block log : logs) {
-            for (BlockFace face : BlockFace.values()) {
-                Block n = log.getRelative(face);
-                if (n.getType().name().endsWith("_LEAVES")) leaves.add(n);
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dy = -radius; dy <= radius; dy++) {
+                    for (int dz = -radius; dz <= radius; dz++) {
+                        Block n = log.getRelative(dx, dy, dz);
+                        if (n.getType().name().endsWith("_LEAVES"))
+                            leaves.add(n);
+                    }
+                }
             }
         }
         return new ArrayList<>(leaves);
@@ -190,32 +202,35 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return dirs.get(random.nextInt(dirs.size()));
     }
 
-    private void dropTreeLoot(World world, List<Block> logs, List<Block> leaves) {
-        for (Block log : logs)
-            world.dropItemNaturally(log.getLocation(), new ItemStack(log.getType()));
-        for (Block leaf : leaves)
-            dropLeafLoot(world, leaf);
+    // дроп с сохранёнными типами
+    private void dropTreeLoot(World world, Map<Block, Material> logs, Map<Block, Material> leaves) {
+        for (Map.Entry<Block, Material> entry : logs.entrySet()) {
+            world.dropItemNaturally(entry.getKey().getLocation(), new ItemStack(entry.getValue()));
+        }
+        for (Map.Entry<Block, Material> entry : leaves.entrySet()) {
+            dropLeafLoot(world, entry.getKey().getLocation(), entry.getValue());
+        }
     }
 
-    private void dropLeafLoot(World world, Block leaf) {
-        double leafDropChance = 0.90;
-        double stickChance = 0.60;
-        double fruitChance = 0.80;
+    // дроп листвы/саженцев/плодов
+    private void dropLeafLoot(World world, Location loc, Material leafType) {
+        double stickChance = 0.6;
+        double fruitChance = 0.8;
 
-        Material sapling = getSaplingForLeaf(leaf.getType());
-        Material fruit = getFruitForLeaf(leaf.getType());
+        Material sapling = getSaplingForLeaf(leafType);
+        Material fruit   = getFruitForLeaf(leafType);
 
-        if (random.nextDouble() < leafDropChance)
-            world.dropItemNaturally(leaf.getLocation(), new ItemStack(leaf.getType()));
+        if (random.nextDouble() < 0.35)
+            world.dropItemNaturally(loc, new ItemStack(leafType));
 
         if (sapling != null && random.nextDouble() < 0.05)
-            world.dropItemNaturally(leaf.getLocation(), new ItemStack(sapling));
+            world.dropItemNaturally(loc, new ItemStack(sapling));
 
         if (random.nextDouble() < stickChance)
-            world.dropItemNaturally(leaf.getLocation(), new ItemStack(Material.STICK));
+            world.dropItemNaturally(loc, new ItemStack(Material.STICK));
 
         if (fruit != null && random.nextDouble() < fruitChance)
-            world.dropItemNaturally(leaf.getLocation(), new ItemStack(fruit));
+            world.dropItemNaturally(loc, new ItemStack(fruit));
     }
 
     private Material getSaplingForLeaf(Material type) {
