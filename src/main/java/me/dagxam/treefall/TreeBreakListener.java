@@ -21,7 +21,7 @@ public class TreeBreakListener implements Listener {
         Block block = event.getBlock();
         if (!isLog(block.getType())) return;
 
-        // Проверим, что это нижний блок дерева: под ним не лог
+        // проверим, что это нижний блок дерева (под ним не лог)
         Block below = block.getRelative(BlockFace.DOWN);
         if (isLog(below.getType())) return;
 
@@ -33,13 +33,13 @@ public class TreeBreakListener implements Listener {
 
         World world = block.getWorld();
 
-        // Сохраняем оригинальные блоки
+        // сохраним оригинальные блоки
         List<BlockStateData> blocks = new ArrayList<>();
         for (Block b : treeBlocks) {
             blocks.add(new BlockStateData(b.getLocation().clone(), b.getBlockData()));
         }
 
-        // Удаляем оригинальные блоки
+        // удалим оригинальные блоки
         for (Block b : treeBlocks) {
             b.setType(Material.AIR, false);
         }
@@ -51,7 +51,7 @@ public class TreeBreakListener implements Listener {
         Location center = getCenter(treeBlocks);
         List<BlockDisplay> displays = new ArrayList<>();
 
-        // создаём дисплеи для каждого блока
+        // создаём BlockDisplay для каждого блока
         for (BlockStateData data : treeBlocks) {
             try {
                 BlockDisplay display = (BlockDisplay) world.spawnEntity(data.pos, EntityType.BLOCK_DISPLAY);
@@ -60,7 +60,19 @@ public class TreeBreakListener implements Listener {
                 display.setInterpolationDuration(10);
                 displays.add(display);
             } catch (Throwable ignored) {
-                // если Spigot — без анимации
+                // если Spigot без Display API — пропускаем
+            }
+        }
+
+        // выберем частицу для эффекта падения
+        Particle particle;
+        try {
+            particle = Particle.valueOf("BLOCK_CRACK");
+        } catch (IllegalArgumentException e1) {
+            try {
+                particle = Particle.valueOf("BLOCK_DUST");
+            } catch (IllegalArgumentException e2) {
+                particle = Particle.BLOCK;
             }
         }
 
@@ -79,7 +91,7 @@ public class TreeBreakListener implements Listener {
 
                 // Эффекты
                 if (tick % 5 == 0) {
-                    world.spawnParticle(Particle.BLOCK_CRACK, center, 10, 0.4, 0.4, 0.4, Material.OAK_LOG.createBlockData());
+                    world.spawnParticle(particle, center, 10, 0.4, 0.4, 0.4, Material.OAK_LOG.createBlockData());
                     world.playSound(center, Sound.BLOCK_WOOD_BREAK, 0.8f, 1.0f);
                 }
 
@@ -93,7 +105,7 @@ public class TreeBreakListener implements Listener {
     }
 
     private void landTree(World world, List<BlockDisplay> displays) {
-        // Проверяем, на какой "высоте" можно поставить дерево
+        // определяем нижнюю точку падения
         int minY = Integer.MAX_VALUE;
         for (BlockDisplay d : displays) {
             int y = d.getLocation().getBlockY();
@@ -102,7 +114,7 @@ public class TreeBreakListener implements Listener {
 
         int dropY = findGroundY(world, displays.get(0).getLocation());
 
-        // Ставим дерево на землю и удаляем дисплеи
+        // ставим дерево на землю и удаляем дисплеи
         for (BlockDisplay d : displays) {
             Location pos = d.getLocation();
             Block target = world.getBlockAt(pos.getBlockX(), dropY + (pos.getBlockY() - minY), pos.getBlockZ());
@@ -114,7 +126,7 @@ public class TreeBreakListener implements Listener {
             d.remove();
         }
 
-        // Дроп фруктов/палок из листвы
+        // дроп фруктов / палок из листвы
         for (BlockDisplay d : displays) {
             if (isLeaf(d.getBlock().getMaterial())) {
                 dropLeafLoot(world.getBlockAt(d.getLocation()));
@@ -124,7 +136,8 @@ public class TreeBreakListener implements Listener {
 
     private int findGroundY(World world, Location start) {
         int y = start.getBlockY();
-        while (y > world.getMinHeight() && world.getBlockAt(start.getBlockX(), y - 1, start.getBlockZ()).getType() == Material.AIR) {
+        while (y > world.getMinHeight() &&
+                world.getBlockAt(start.getBlockX(), y - 1, start.getBlockZ()).getType() == Material.AIR) {
             y--;
         }
         return y;
@@ -140,12 +153,15 @@ public class TreeBreakListener implements Listener {
     }
 
     private Location getCenter(List<BlockStateData> blocks) {
-        double x=0, y=0, z=0;
+        double x = 0, y = 0, z = 0;
         for (BlockStateData b : blocks) {
-            x += b.pos.getX(); y += b.pos.getY(); z += b.pos.getZ();
+            x += b.pos.getX();
+            y += b.pos.getY();
+            z += b.pos.getZ();
         }
-        return blocks.isEmpty() ? new Location(Bukkit.getWorlds().get(0), 0,0,0)
-                : new Location(blocks.get(0).pos.getWorld(), x/blocks.size(), y/blocks.size(), z/blocks.size());
+        return blocks.isEmpty()
+                ? new Location(Bukkit.getWorlds().get(0), 0, 0, 0)
+                : new Location(blocks.get(0).pos.getWorld(), x / blocks.size(), y / blocks.size(), z / blocks.size());
     }
 
     private void findTree(Block start, Set<Block> found, Set<Block> visited, int depth, int max) {
@@ -171,16 +187,16 @@ public class TreeBreakListener implements Listener {
         return n.endsWith("_LEAVES") || n.endsWith("_WART_BLOCK");
     }
 
-    /** Дроп предметов как при распаде листвы */
+    /** дроп предметов как при распаде листвы */
     private void dropLeafLoot(Block leaf) {
         World world = leaf.getWorld();
         double saplingChance = 0.05;
-        double stickChance   = 0.02;
-        double fruitChance   = 0.01;
+        double stickChance = 0.02;
+        double fruitChance = 0.01;
 
         String name = leaf.getType().name();
         Material sapling = getSaplingForLeaf(name);
-        Material fruit   = getFruitForLeaf(name);
+        Material fruit = getFruitForLeaf(name);
 
         if (sapling != null && random.nextDouble() < saplingChance) {
             world.dropItemNaturally(leaf.getLocation(), new org.bukkit.inventory.ItemStack(sapling));
