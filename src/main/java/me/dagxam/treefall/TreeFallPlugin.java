@@ -57,6 +57,27 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Map<Block, Material> leafTypes = connectedLeaves.stream()
                 .collect(Collectors.toMap(b -> b, Block::getType));
 
+        private Material getSaplingForLeaf(Material leafType) {
+    return switch (leafType) {
+        case OAK_LEAVES      -> Material.OAK_SAPLING;
+        case BIRCH_LEAVES    -> Material.BIRCH_SAPLING;
+        case SPRUCE_LEAVES   -> Material.SPRUCE_SAPLING;
+        case JUNGLE_LEAVES   -> Material.JUNGLE_SAPLING;
+        case ACACIA_LEAVES   -> Material.ACACIA_SAPLING;
+        case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
+        case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
+        case CHERRY_LEAVES   -> Material.CHERRY_SAPLING;
+        default -> null; // если дерево без саженца — ничего не возвращаем
+    };
+}
+
+private Material getFruitForLeaf(Material leafType) {
+    return switch (leafType) {
+        case OAK_LEAVES, DARK_OAK_LEAVES -> Material.APPLE;
+        default -> null; // у большинства листвы нет плодов
+    };
+}
+        
         // Определяем основную листву (по первому бревну)
         Material mainLeaf = getLeafForLog(type);
 
