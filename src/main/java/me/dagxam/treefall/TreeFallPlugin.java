@@ -2,295 +2,157 @@ package me.dagxam.treefall;
 
 import org.bukkit.*;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.util.Vector;
-
 import java.util.*;
-import java.util.stream.Collectors;
 
-public class TreeFallPlugin extends JavaPlugin implements Listener {
+public class TreeFallPlugin extends JavaPlugin implements org.bukkit.event.Listener {
 
-    private FileConfiguration config;
-    private final Random random = new Random();
+    private static final int MAX_TREE_HEIGHT = 50;
+    private static final int MAX_RADIUS = 5;
+    private static final Map<Material, Material> logToLeaf = new HashMap<>();
+
+    static {
+        logToLeaf.put(Material.OAK_LOG, Material.OAK_LEAVES);
+        logToLeaf.put(Material.BIRCH_LOG, Material.BIRCH_LEAVES);
+        logToLeaf.put(Material.SPRUCE_LOG, Material.SPRUCE_LEAVES);
+        logToLeaf.put(Material.JUNGLE_LOG, Material.JUNGLE_LEAVES);
+        logToLeaf.put(Material.ACACIA_LOG, Material.ACACIA_LEAVES);
+        logToLeaf.put(Material.DARK_OAK_LOG, Material.DARK_OAK_LEAVES);
+        logToLeaf.put(Material.MANGROVE_LOG, Material.MANGROVE_LEAVES);
+    }
 
     @Override
     public void onEnable() {
-        getServer().getPluginManager().registerEvents(this, this);
-        saveDefaultConfig();
-        config = getConfig();
-        getLogger().info("[TreeFallPlugin] Плагин активирован!");
+        Bukkit.getPluginManager().registerEvents(this, this);
+        getLogger().info("TreeFallPlugin включён");
     }
 
-    @Override
-    public void onDisable() {
-        getLogger().info("[TreeFallPlugin] Плагин выключен.");
-    }
-
-    @EventHandler
-    public void onLogBreak(BlockBreakEvent event) {
-        if (event.isCancelled() || event.getPlayer().getGameMode() == GameMode.CREATIVE) return;
-
+    @org.bukkit.event.EventHandler
+    public void onLogBreak(org.bukkit.event.block.BlockBreakEvent event) {
         Block block = event.getBlock();
-        Material type = block.getType();
-        if (!isLog(type)) return;
+        Material brokenType = block.getType();
 
-        Block below = block.getRelative(BlockFace.DOWN);
-        if (isLogOrLeaves(below.getType())) return;
+        if (!logToLeaf.containsKey(brokenType)) return;
+        org.bukkit.entity.Player player = event.getPlayer();
 
-        Block above = block.getRelative(BlockFace.UP);
-        if (!isLogOrLeaves(above.getType())) return;
+        Material leafType = logToLeaf.get(brokenType);
+        Set<Block> treeBlocks = collectTree(block, brokenType, leafType);
+        if (treeBlocks.isEmpty()) return;
 
-        World world = event.getPlayer().getWorld();
+        event.setCancelled(true);
+        worldFallAnimation(treeBlocks, player, brokenType, leafType);
+    }
 
-        List<Block> connectedLogs = getConnectedLogs(block);
-        List<Block> connectedLeaves = getConnectedLeavesWide(connectedLogs, 6);
+    private Set<Block> collectTree(Block start, Material logType, Material leafType) {
+        Set<Block> result = new HashSet<>();
+        Queue<Block> queue = new LinkedList<>();
+        queue.add(start);
 
-        Map<Block, Material> logTypes = connectedLogs.stream()
-                .collect(Collectors.toMap(b -> b, Block::getType));
-        Map<Block, Material> leafTypes = connectedLeaves.stream()
-                .collect(Collectors.toMap(b -> b, Block::getType));
+        while (!queue.isEmpty()) {
+            Block current = queue.poll();
+            if (result.contains(current)) continue;
 
-        private Material getSaplingForLeaf(Material leafType) {
-    return switch (leafType) {
-        case OAK_LEAVES      -> Material.OAK_SAPLING;
-        case BIRCH_LEAVES    -> Material.BIRCH_SAPLING;
-        case SPRUCE_LEAVES   -> Material.SPRUCE_SAPLING;
-        case JUNGLE_LEAVES   -> Material.JUNGLE_SAPLING;
-        case ACACIA_LEAVES   -> Material.ACACIA_SAPLING;
-        case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
-        case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
-        case CHERRY_LEAVES   -> Material.CHERRY_SAPLING;
-        default -> null; // если дерево без саженца — ничего не возвращаем
-    };
-}
+            Material type = current.getType();
+            if (type == logType || type == leafType) {
+                result.add(current);
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            Block nearby = current.getRelative(dx, dy, dz);
+                            if (!result.contains(nearby) &&
+                                nearby.getType().isSolid() &&
+                                (nearby.getType() == logType || nearby.getType() == leafType)) {
+                                queue.add(nearby);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return result;
+    }
 
-private Material getFruitForLeaf(Material leafType) {
-    return switch (leafType) {
-        case OAK_LEAVES, DARK_OAK_LEAVES -> Material.APPLE;
-        default -> null; // у большинства листвы нет плодов
-    };
-}
-        
-        // Определяем основную листву (по первому бревну)
-        Material mainLeaf = getLeafForLog(type);
-
-        Direction direction = determineFallDirection(block);
-
-        Set<Block> affected = new HashSet<>(connectedLogs);
-        affected.addAll(connectedLeaves);
-        affected.forEach(b -> b.setType(Material.AIR));
-
-        event.setDropItems(false);
+    private void worldFallAnimation(Set<Block> blocks, org.bukkit.entity.Player player,
+                                    Material logType, Material leafType) {
+        World world = player.getWorld();
+        Random random = new Random();
 
         new BukkitRunnable() {
-            int step = 0;
-            final Location base = block.getLocation();
+            double progress = 0;
+            final double maxProgress = 1.0;
 
             @Override
             public void run() {
-                if (step >= 10) {
-                    dropTreeLoot(world, logTypes, leafTypes, mainLeaf);
-                    world.spawnParticle(Particle.FALLING_DUST,
-                            base.clone().add(direction.toVector().multiply(5)),
-                            80, 1.8, 1.2, 1.8, 0.02, Material.DIRT.createBlockData());
-                    world.playSound(base, Sound.BLOCK_WOOD_BREAK, 1f, 0.8f);
+                progress += 0.1;
+                for (Block b : blocks) {
+                    world.spawnParticle(Particle.LEAVES, b.getLocation().add(0.5, 1, 0.5), 3);
+                }
+
+                if (progress >= maxProgress) {
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            for (Block b : blocks) {
+                                Material type = b.getType();
+                                if (type == logType || type == leafType) {
+                                    world.spawnParticle(Particle.BLOCK_CRACK, b.getLocation().add(0.5, 0.5, 0.5),
+                                            10, 0.3, 0.3, 0.3, b.getBlockData());
+                                    world.playSound(b.getLocation(), Sound.BLOCK_GRASS_BREAK, 0.5f, 1.2f);
+                                    b.setType(Material.AIR);
+                                    b.getWorld().dropItemNaturally(b.getLocation(), new org.bukkit.inventory.ItemStack(type));
+                                }
+                            }
+                            dropExtraLoot(world, blocks, leafType);
+                        }
+                    }.runTaskLater(TreeFallPlugin.this, 5L);
                     cancel();
-                    return;
-                }
-
-                Location moveVec = direction.toVector().multiply(step * 0.5).toLocation(world);
-
-                for (Block log : connectedLogs) {
-                    Location loc = base.clone()
-                            .add(moveVec)
-                            .add(log.getX() - block.getX(),
-                                 log.getY() - block.getY(),
-                                 log.getZ() - block.getZ())
-                            .add(0.5, 0.5, 0.5);
-
-                    world.spawnParticle(
-                            Particle.BLOCK,
-                            loc, 10,
-                            0.3, 0.3, 0.3, 0.02,
-                            logTypes.get(log).createBlockData()
-                    );
-
-                    world.spawnParticle(
-                            Particle.FALLING_DUST,
-                            loc.clone().add(0, -0.2, 0),
-                            6, 0.5, 0.5, 0.5,
-                            0.01, Material.DIRT.createBlockData()
-                    );
-                }
-
-                for (Block leaf : connectedLeaves) {
-                    if (random.nextDouble() < 0.15) {
-                        Location leafLoc = leaf.getLocation().add(0.5, 0.8, 0.5);
-                        world.spawnParticle(
-                                Particle.FALLING_DUST,
-                                leafLoc.add(direction.toVector().multiply(step * 0.2)),
-                                5, 0.4, 0.2, 0.4, 0.01,
-                                leafTypes.get(leaf).createBlockData()
-                        );
-                    }
-                }
-
-                if (step % 2 == 0)
-                    world.playSound(base, Sound.BLOCK_WOOD_PLACE, 0.4f, 0.6f + step * 0.05f);
-
-                step++;
-            }
-        }.runTaskTimer(this, 0L, 2L);
-    }
-
-    // === Вспомогательные методы ===
-
-    private boolean isLog(Material m) {
-        return m.name().endsWith("_LOG")
-                || m.name().endsWith("_STEM")
-                || m.name().endsWith("_HYPHAE");
-    }
-
-    private boolean isLogOrLeaves(Material m) {
-        return isLog(m) || m.name().endsWith("_LEAVES");
-    }
-
-    private List<Block> getConnectedLogs(Block start) {
-        List<Block> found = new ArrayList<>();
-        Queue<Block> queue = new LinkedList<>();
-        Set<Block> visited = new HashSet<>();
-        queue.add(start);
-        visited.add(start);
-
-        while (!queue.isEmpty()) {
-            Block b = queue.poll();
-            if (isLog(b.getType())) {
-                found.add(b);
-                for (BlockFace face : Arrays.asList(BlockFace.UP, BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST)) {
-                    Block nb = b.getRelative(face);
-                    if (!visited.contains(nb) && isLog(nb.getType())) {
-                        visited.add(nb);
-                        queue.add(nb);
-                    }
                 }
             }
-        }
-        return found.stream().limit(config.getInt("max-tree-size", 1200)).collect(Collectors.toList());
+        }.runTaskTimer(this, 0L, 3L);
     }
 
-    private List<Block> getConnectedLeavesWide(List<Block> logs, int radius) {
-        Set<Block> leaves = new HashSet<>();
-        for (Block log : logs) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dy = -radius; dy <= radius; dy++) {
-                    for (int dz = -radius; dz <= radius; dz++) {
-                        Block n = log.getRelative(dx, dy, dz);
-                        if (n.getType().name().endsWith("_LEAVES"))
-                            leaves.add(n);
-                    }
-                }
+    private void dropExtraLoot(World world, Set<Block> blocks, Material leafType) {
+        Random random = new Random();
+        Material sapling = getSaplingForLeaf(leafType);
+        Material fruit = getFruitForLeaf(leafType);
+
+        for (Block b : blocks) {
+            if (random.nextFloat() < 0.25f) {
+                world.dropItemNaturally(b.getLocation(), new org.bukkit.inventory.ItemStack(Material.STICK, random.nextInt(2) + 1));
+            }
+            if (sapling != null && random.nextFloat() < 0.2f) {
+                world.dropItemNaturally(b.getLocation(), new org.bukkit.inventory.ItemStack(sapling, 1));
+            }
+            if (fruit != null && random.nextFloat() < 0.15f) {
+                world.dropItemNaturally(b.getLocation(), new org.bukkit.inventory.ItemStack(fruit, 1));
             }
         }
-        return new ArrayList<>(leaves);
     }
 
-    private enum Direction {
-        NORTH, SOUTH, EAST, WEST;
-        public Vector toVector() {
-            switch (this) {
-                case NORTH: return new Vector(0, 0, -1);
-                case SOUTH: return new Vector(0, 0, 1);
-                case EAST:  return new Vector(1, 0, 0);
-                case WEST:  return new Vector(-1, 0, 0);
-            }
-            return new Vector(0, 0, 0);
-        }
-    }
-
-    private Direction determineFallDirection(Block b) {
-        List<Direction> dirs = Arrays.asList(Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST);
-        return dirs.get(random.nextInt(dirs.size()));
-    }
-
-    private void dropTreeLoot(World world, Map<Block, Material> logs, Map<Block, Material> leaves, Material mainLeaf) {
-    // Дроп всех брёвен в том же количестве
-    for (Map.Entry<Block, Material> entry : logs.entrySet()) {
-        world.dropItemNaturally(entry.getKey().getLocation(), new ItemStack(entry.getValue(), 1));
-    }
-
-    // Дроп листвы — столько же, сколько на дереве
-    for (Map.Entry<Block, Material> entry : leaves.entrySet()) {
-        Material leafType = entry.getValue();
-        world.dropItemNaturally(entry.getKey().getLocation(), new ItemStack(leafType, 1));
-
-        // Дроп доп. содержимого только у "основной листвы" (чтобы не спамить)
-        if (leafType == mainLeaf) {
-            dropLeafLoot(world, entry.getKey().getLocation(), leafType);
-        }
-    }
-}
-
-private void dropLeafLoot(World world, Location loc, Material leafType) {
-    double stickChance = 0.08;
-    double saplingChance = 0.06;
-
-    Material sapling = getSaplingForLeaf(leafType);
-    Material fruit   = getFruitForLeaf(leafType);
-
-    Random random = new Random();
-
-    // Случайное кол-во листвы (ровно 1, уже выше в основном дропе)
-
-    // Дроп саженцев
-    if (sapling != null && random.nextDouble() < saplingChance) {
-        int saplingCount = 1 + random.nextInt(4); // от 1 до 4
-        world.dropItemNaturally(loc, new ItemStack(sapling, saplingCount));
-    }
-
-    // Дроп палок
-    if (random.nextDouble() < stickChance) {
-        int stickCount = 1 + random.nextInt(4); // от 1 до 4
-        world.dropItemNaturally(loc, new ItemStack(Material.STICK, stickCount));
-    }
-
-    // Дроп плодов — только если у дерева есть фрукт, 1–5 штук
-    if (fruit != null) {
-        int fruitCount = 1 + random.nextInt(5);
-        world.dropItemNaturally(loc, new ItemStack(fruit, fruitCount));
-    }
-}
-
-    // связь бревна и листвы
-    private Material getLeafForLog(Material log) {
-        String name = log.name().toLowerCase();
-        if (name.contains("oak") && !name.contains("dark")) return Material.OAK_LEAVES;
-        if (name.contains("dark_oak")) return Material.DARK_OAK_LEAVES;
-        if (name.contains("birch"))    return Material.BIRCH_LEAVES;
-        if (name.contains("spruce"))   return Material.SPRUCE_LEAVES;
-        if (name.contains("jungle"))   return Material.JUNGLE_LEAVES;
-        if (name.contains("acacia"))   return Material.ACACIA_LEAVES;
-        if (name.contains("mangrove")) return Material.MANGROVE_LEAVES;
-        if (name.contains("cherry"))   return Material.CHERRY_LEAVES;
-        if (name.contains("crimson"))  return Material.NETHER_WART_BLOCK;
-        if (name.contains("warped"))   return Material.WARPED_WART_BLOCK;
-        return Material.OAK_LEAVES;
+    private Material getSaplingForLeaf(Material leafType) {
+        return switch (leafType) {
+            case OAK_LEAVES -> Material.OAK_SAPLING;
+            case SPRUCE_LEAVES -> Material.SPRUCE_SAPLING;
+            case BIRCH_LEAVES -> Material.BIRCH_SAPLING;
+            case JUNGLE_LEAVES -> Material.JUNGLE_SAPLING;
+            case ACACIA_LEAVES -> Material.ACACIA_SAPLING;
+            case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
+            case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
+            case CHERRY_LEAVES -> Material.CHERRY_SAPLING;
+            case AZALEA_LEAVES -> Material.AZALEA;
+            case FLOWERING_AZALEA_LEAVES -> Material.FLOWERING_AZALEА;
+            default -> Material.OAK_SAPLING;
+        };
     }
 
     private Material getFruitForLeaf(Material leafType) {
-        String name = leafType.name().toLowerCase();
-        if (name.contains("oak"))      return Material.APPLE;
-        if (name.contains("jungle"))   return Material.COCOA_BEANS;
-        if (name.contains("cherry"))   return Material.SWEET_BERRIES;
-        if (name.contains("mangrove")) return Material.MANGROVE_PROPAGULE;
-        if (name.contains("crimson"))  return Material.CRIMSON_FUNGUS;
-        if (name.contains("warped"))   return Material.WARPED_FUNGUS;
-        return null;
+        return switch (leafType) {
+            case OAK_LEAVES -> Material.APPLE;
+            case AZALEA_LEAVES, FLOWERING_AZALEA_LEAVES -> Material.GLOW_BERRIES;
+            case CHERRY_LEAVES -> Material.CHERRY;
+            case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
+            default -> null;
+        };
     }
 }
