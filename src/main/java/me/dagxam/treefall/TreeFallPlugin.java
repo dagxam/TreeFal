@@ -199,53 +199,52 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     private void dropTreeLoot(World world, Map<Block, Material> logs, Map<Block, Material> leaves, Material mainLeaf) {
-        for (Map.Entry<Block, Material> entry : logs.entrySet()) {
-            world.dropItemNaturally(entry.getKey().getLocation(), new ItemStack(entry.getValue()));
-        }
-        for (Map.Entry<Block, Material> entry : leaves.entrySet()) {
-            if (entry.getValue() == mainLeaf)
-                dropLeafLoot(world, entry.getKey().getLocation(), entry.getValue());
-        }
+    // Дроп всех брёвен в том же количестве
+    for (Map.Entry<Block, Material> entry : logs.entrySet()) {
+        world.dropItemNaturally(entry.getKey().getLocation(), new ItemStack(entry.getValue(), 1));
     }
 
-    private void dropLeafLoot(World world, Location loc, Material leafType) {
-    // Вероятности дропа
-    double stickChance  = 0.08; // 8 %
-    double fruitChance  = 0.07; // 7 %
-    double saplingChance = 0.06; // 6 %
+    // Дроп листвы — столько же, сколько на дереве
+    for (Map.Entry<Block, Material> entry : leaves.entrySet()) {
+        Material leafType = entry.getValue();
+        world.dropItemNaturally(entry.getKey().getLocation(), new ItemStack(leafType, 1));
+
+        // Дроп доп. содержимого только у "основной листвы" (чтобы не спамить)
+        if (leafType == mainLeaf) {
+            dropLeafLoot(world, entry.getKey().getLocation(), leafType);
+        }
+    }
+}
+
+private void dropLeafLoot(World world, Location loc, Material leafType) {
+    double stickChance = 0.08;
+    double saplingChance = 0.06;
 
     Material sapling = getSaplingForLeaf(leafType);
     Material fruit   = getFruitForLeaf(leafType);
 
-    // Дроп листьев (сама листва)
-    if (random.nextDouble() < 0.35)
-        world.dropItemNaturally(loc, new ItemStack(leafType));
+    Random random = new Random();
 
-    // Дроп саженцев (новое значение 6%)
-    if (sapling != null && random.nextDouble() < saplingChance)
-        world.dropItemNaturally(loc, new ItemStack(sapling));
+    // Случайное кол-во листвы (ровно 1, уже выше в основном дропе)
+
+    // Дроп саженцев
+    if (sapling != null && random.nextDouble() < saplingChance) {
+        int saplingCount = 1 + random.nextInt(4); // от 1 до 4
+        world.dropItemNaturally(loc, new ItemStack(sapling, saplingCount));
+    }
 
     // Дроп палок
-    if (random.nextDouble() < stickChance)
-        world.dropItemNaturally(loc, new ItemStack(Material.STICK));
-
-    // Дроп плодов
-    if (fruit != null && random.nextDouble() < fruitChance)
-        world.dropItemNaturally(loc, new ItemStack(fruit));
-}
-    private Material getSaplingForLeaf(Material type) {
-        switch (type) {
-            case OAK_LEAVES:       return Material.OAK_SAPLING;
-            case BIRCH_LEAVES:     return Material.BIRCH_SAPLING;
-            case SPRUCE_LEAVES:    return Material.SPRUCE_SAPLING;
-            case JUNGLE_LEAVES:    return Material.JUNGLE_SAPLING;
-            case ACACIA_LEAVES:    return Material.ACACIA_SAPLING;
-            case DARK_OAK_LEAVES:  return Material.DARK_OAK_SAPLING;
-            case MANGROVE_LEAVES:  return Material.MANGROVE_PROPAGULE;
-            case CHERRY_LEAVES:    return Material.CHERRY_SAPLING;
-            default:               return null;
-        }
+    if (random.nextDouble() < stickChance) {
+        int stickCount = 1 + random.nextInt(4); // от 1 до 4
+        world.dropItemNaturally(loc, new ItemStack(Material.STICK, stickCount));
     }
+
+    // Дроп плодов — только если у дерева есть фрукт, 1–5 штук
+    if (fruit != null) {
+        int fruitCount = 1 + random.nextInt(5);
+        world.dropItemNaturally(loc, new ItemStack(fruit, fruitCount));
+    }
+}
 
     // связь бревна и листвы
     private Material getLeafForLog(Material log) {
