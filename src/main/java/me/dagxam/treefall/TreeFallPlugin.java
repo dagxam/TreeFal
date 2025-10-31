@@ -87,7 +87,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     world.spawnParticle(
                             Particle.BLOCK,
                             b.getLocation().add(0.5, 1, 0.5),
-                            3, 0.2, 0.2, 0.2,
+                            2, 0.2, 0.2, 0.2,
                             b.getBlockData()
                     );
                 }
@@ -96,23 +96,38 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     new BukkitRunnable() {
                         @Override
                         public void run() {
-                            List<Material> droppedTypes = new ArrayList<>();
+                            int logsCount = 0;
+                            int leavesCount = 0;
+
+                            // Подсчитываем, сколько реально было блоков дерева и листвы
+                            for (Block b : blocks) {
+                                if (b.getType() == logType) logsCount++;
+                                else if (b.getType() == leafType) leavesCount++;
+                            }
+
+                            // Убираем дерево и спавним эффект
                             for (Block b : blocks) {
                                 Material type = b.getType();
                                 if (type == logType || type == leafType) {
                                     world.spawnParticle(
                                             Particle.BLOCK,
                                             b.getLocation().add(0.5, 0.5, 0.5),
-                                            10, 0.3, 0.3, 0.3,
+                                            8, 0.3, 0.3, 0.3,
                                             b.getBlockData()
                                     );
                                     world.playSound(b.getLocation(), Sound.BLOCK_GRASS_BREAK, 0.6f, 1.2f);
                                     b.setType(Material.AIR);
-                                    world.dropItemNaturally(b.getLocation(), new ItemStack(type));
-                                    droppedTypes.add(type);
                                 }
                             }
-                            dropExtraLoot(world, blocks, leafType);
+
+                            // Дропаем ровно столько, сколько было в дереве
+                            world.dropItemNaturally(player.getLocation(),
+                                    new ItemStack(logType, logsCount));
+                            if (leavesCount > 0)
+                                world.dropItemNaturally(player.getLocation(),
+                                        new ItemStack(leafType, leavesCount));
+
+                            dropExtraLoot(world, player.getLocation(), leafType);
                         }
                     }.runTaskLater(TreeFallPlugin.this, 5L);
                     cancel();
@@ -121,30 +136,21 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         }.runTaskTimer(this, 0L, 3L);
     }
 
-    private void dropExtraLoot(World world, Set<Block> blocks, Material leafType) {
+    private void dropExtraLoot(World world, Location loc, Material leafType) {
         Random random = new Random();
         Material sapling = getSaplingForLeaf(leafType);
         Material fruit = getFruitForLeaf(leafType);
 
-        // Случайные количества в заданных диапазонах
-        int stickCount = random.nextInt(3) + 5;      // 5–7
+        int stickCount = random.nextInt(3) + 5;        // 5–7
         int fruitCount = (fruit != null) ? random.nextInt(3) + 2 : 0; // 2–4
         int saplingCount = (sapling != null) ? random.nextInt(3) + 1 : 0; // 1–3
 
-        List<Block> blockList = new ArrayList<>(blocks);
-        Collections.shuffle(blockList);
-
         if (stickCount > 0)
-            for (int i = 0; i < stickCount && i < blockList.size(); i++)
-                world.dropItemNaturally(blockList.get(i).getLocation(), new ItemStack(Material.STICK));
-
+            world.dropItemNaturally(loc, new ItemStack(Material.STICK, stickCount));
         if (fruitCount > 0)
-            for (int i = 0; i < fruitCount && i < blockList.size(); i++)
-                world.dropItemNaturally(blockList.get(i).getLocation(), new ItemStack(fruit));
-
+            world.dropItemNaturally(loc, new ItemStack(fruit, fruitCount));
         if (saplingCount > 0)
-            for (int i = 0; i < saplingCount && i < blockList.size(); i++)
-                world.dropItemNaturally(blockList.get(i).getLocation(), new ItemStack(sapling));
+            world.dropItemNaturally(loc, new ItemStack(sapling, saplingCount));
     }
 
     private Material getSaplingForLeaf(Material leafType) {
@@ -161,10 +167,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     private Material getFruitForLeaf(Material leafType) {
-        // Яблоки только с дуба или тёмного дуба
         return switch (leafType) {
             case OAK_LEAVES, DARK_OAK_LEAVES -> Material.APPLE;
-            case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE; // мангровое "плод"
+            case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
             default -> null;
         };
     }
