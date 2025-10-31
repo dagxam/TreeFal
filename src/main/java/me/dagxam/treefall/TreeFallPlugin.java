@@ -8,7 +8,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.*;
 
@@ -36,16 +35,21 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     public void onLogBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         Material brokenType = block.getType();
-        if (!LOG_TO_LEAF.containsKey(brokenType)) return;
+
+        // Проверяем: это ли блок дерева
+        if (!LOG_TO_LEAF.containsKey(brokenType))
+            return;
 
         event.setCancelled(true);
         Player player = event.getPlayer();
         Material leafType = LOG_TO_LEAF.get(brokenType);
 
+        // Собираем все блоки дерева
         Set<Block> treeBlocks = collectTree(block, brokenType, leafType);
         if (treeBlocks.isEmpty()) return;
 
-        playFallAnimation(treeBlocks, player, brokenType, leafType);
+        // Сразу "роняем" дерево (удаляем + дропаем)
+        breakTreeImmediately(treeBlocks, player, brokenType, leafType);
     }
 
     private Set<Block> collectTree(Block start, Material logType, Material leafType) {
@@ -64,7 +68,8 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                 for (int dy = -1; dy <= 1; dy++) {
                     for (int dz = -1; dz <= 1; dz++) {
                         Block nearby = current.getRelative(dx, dy, dz);
-                        if (!result.contains(nearby)) queue.add(nearby);
+                        if (!result.contains(nearby))
+                            queue.add(nearby);
                     }
                 }
             }
@@ -72,68 +77,43 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return result;
     }
 
-    private void playFallAnimation(Set<Block> blocks, Player player,
-                                   Material logType, Material leafType) {
+    private void breakTreeImmediately(Set<Block> blocks, Player player,
+                                      Material logType, Material leafType) {
 
         World world = player.getWorld();
+        int logsCount = 0;
+        int leavesCount = 0;
 
-        new BukkitRunnable() {
-            double progress = 0;
+        // Подсчёт количества блоков дерева
+        for (Block b : blocks) {
+            Material type = b.getType();
+            if (type == logType) logsCount++;
+            else if (type == leafType) leavesCount++;
+        }
 
-            @Override
-            public void run() {
-                progress += 0.1;
-                for (Block b : blocks) {
-                    world.spawnParticle(
-                            Particle.BLOCK,
-                            b.getLocation().add(0.5, 1, 0.5),
-                            2, 0.2, 0.2, 0.2,
-                            b.getBlockData()
-                    );
-                }
-
-                if (progress >= 1.0) {
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            int logsCount = 0;
-                            int leavesCount = 0;
-
-                            // Подсчитываем, сколько реально было блоков дерева и листвы
-                            for (Block b : blocks) {
-                                if (b.getType() == logType) logsCount++;
-                                else if (b.getType() == leafType) leavesCount++;
-                            }
-
-                            // Убираем дерево и спавним эффект
-                            for (Block b : blocks) {
-                                Material type = b.getType();
-                                if (type == logType || type == leafType) {
-                                    world.spawnParticle(
-                                            Particle.BLOCK,
-                                            b.getLocation().add(0.5, 0.5, 0.5),
-                                            8, 0.3, 0.3, 0.3,
-                                            b.getBlockData()
-                                    );
-                                    world.playSound(b.getLocation(), Sound.BLOCK_GRASS_BREAK, 0.6f, 1.2f);
-                                    b.setType(Material.AIR);
-                                }
-                            }
-
-                            // Дропаем ровно столько, сколько было в дереве
-                            world.dropItemNaturally(player.getLocation(),
-                                    new ItemStack(logType, logsCount));
-                            if (leavesCount > 0)
-                                world.dropItemNaturally(player.getLocation(),
-                                        new ItemStack(leafType, leavesCount));
-
-                            dropExtraLoot(world, player.getLocation(), leafType);
-                        }
-                    }.runTaskLater(TreeFallPlugin.this, 5L);
-                    cancel();
-                }
+        // Удаляем дерево и проигрываем эффект
+        for (Block b : blocks) {
+            Material type = b.getType();
+            if (type == logType || type == leafType) {
+                world.spawnParticle(
+                        Particle.BLOCK,
+                        b.getLocation().add(0.5, 0.5, 0.5),
+                        8, 0.3, 0.3, 0.3,
+                        b.getBlockData()
+                );
+                world.playSound(b.getLocation(), Sound.BLOCK_GRASS_BREAK, 0.6f, 1.2f);
+                b.setType(Material.AIR);
             }
-        }.runTaskTimer(this, 0L, 3L);
+        }
+
+        // Дроп древесины и листвы
+        if (logsCount > 0)
+            world.dropItemNaturally(player.getLocation(), new ItemStack(logType, logsCount));
+        if (leavesCount > 0)
+            world.dropItemNaturally(player.getLocation(), new ItemStack(leafType, leavesCount));
+
+        // Добавочный лут (палки, фрукты, саженцы)
+        dropExtraLoot(world, player.getLocation(), leafType);
     }
 
     private void dropExtraLoot(World world, Location loc, Material leafType) {
@@ -141,9 +121,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Material sapling = getSaplingForLeaf(leafType);
         Material fruit = getFruitForLeaf(leafType);
 
-        int stickCount = random.nextInt(3) + 5;        // 5–7
-        int fruitCount = (fruit != null) ? random.nextInt(3) + 2 : 0; // 2–4
-        int saplingCount = (sapling != null) ? random.nextInt(3) + 1 : 0; // 1–3
+        int stickCount = random.nextInt(3) + 5;         // 5–7 палок
+        int fruitCount = (fruit != null) ? random.nextInt(3) + 2 : 0;   // 2–4 яблок/плодов
+        int saplingCount = (sapling != null) ? random.nextInt(3) + 1 : 0; // 1–3 саженца
 
         if (stickCount > 0)
             world.dropItemNaturally(loc, new ItemStack(Material.STICK, stickCount));
