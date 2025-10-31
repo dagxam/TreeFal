@@ -2,7 +2,7 @@ package me.dagxam.treefall;
 
 import org.bukkit.*;
 import org.bukkit.block.Block;
-import org.bukkit.entity.Player;          //  ← добавь эту строку
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -24,7 +24,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         LOG_TO_LEAF.put(Material.ACACIA_LOG, Material.ACACIA_LEAVES);
         LOG_TO_LEAF.put(Material.DARK_OAK_LOG, Material.DARK_OAK_LEAVES);
         LOG_TO_LEAF.put(Material.MANGROVE_LOG, Material.MANGROVE_LEAVES);
-        // новые типы можно будет добавить при обновлении ядра
     }
 
     @Override
@@ -86,7 +85,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                 progress += 0.1;
                 for (Block b : blocks) {
                     world.spawnParticle(
-                            Particle.BLOCK,                     // универсальная частица
+                            Particle.BLOCK,
                             b.getLocation().add(0.5, 1, 0.5),
                             3, 0.2, 0.2, 0.2,
                             b.getBlockData()
@@ -97,6 +96,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     new BukkitRunnable() {
                         @Override
                         public void run() {
+                            List<Material> droppedTypes = new ArrayList<>();
                             for (Block b : blocks) {
                                 Material type = b.getType();
                                 if (type == logType || type == leafType) {
@@ -109,6 +109,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                                     world.playSound(b.getLocation(), Sound.BLOCK_GRASS_BREAK, 0.6f, 1.2f);
                                     b.setType(Material.AIR);
                                     world.dropItemNaturally(b.getLocation(), new ItemStack(type));
+                                    droppedTypes.add(type);
                                 }
                             }
                             dropExtraLoot(world, blocks, leafType);
@@ -123,13 +124,27 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     private void dropExtraLoot(World world, Set<Block> blocks, Material leafType) {
         Random random = new Random();
         Material sapling = getSaplingForLeaf(leafType);
+        Material fruit = getFruitForLeaf(leafType);
 
-        for (Block b : blocks) {
-            if (random.nextFloat() < 0.25f)
-                world.dropItemNaturally(b.getLocation(), new ItemStack(Material.STICK, random.nextInt(2) + 1));
-            if (sapling != null && random.nextFloat() < 0.2f)
-                world.dropItemNaturally(b.getLocation(), new ItemStack(sapling, 1));
-        }
+        // Случайные количества в заданных диапазонах
+        int stickCount = random.nextInt(3) + 5;      // 5–7
+        int fruitCount = (fruit != null) ? random.nextInt(3) + 2 : 0; // 2–4
+        int saplingCount = (sapling != null) ? random.nextInt(3) + 1 : 0; // 1–3
+
+        List<Block> blockList = new ArrayList<>(blocks);
+        Collections.shuffle(blockList);
+
+        if (stickCount > 0)
+            for (int i = 0; i < stickCount && i < blockList.size(); i++)
+                world.dropItemNaturally(blockList.get(i).getLocation(), new ItemStack(Material.STICK));
+
+        if (fruitCount > 0)
+            for (int i = 0; i < fruitCount && i < blockList.size(); i++)
+                world.dropItemNaturally(blockList.get(i).getLocation(), new ItemStack(fruit));
+
+        if (saplingCount > 0)
+            for (int i = 0; i < saplingCount && i < blockList.size(); i++)
+                world.dropItemNaturally(blockList.get(i).getLocation(), new ItemStack(sapling));
     }
 
     private Material getSaplingForLeaf(Material leafType) {
@@ -141,6 +156,15 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             case ACACIA_LEAVES -> Material.ACACIA_SAPLING;
             case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
             case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
+            default -> null;
+        };
+    }
+
+    private Material getFruitForLeaf(Material leafType) {
+        // Яблоки только с дуба или тёмного дуба
+        return switch (leafType) {
+            case OAK_LEAVES, DARK_OAK_LEAVES -> Material.APPLE;
+            case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE; // мангровое "плод"
             default -> null;
         };
     }
