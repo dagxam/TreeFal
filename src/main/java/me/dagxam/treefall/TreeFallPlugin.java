@@ -36,10 +36,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Block block = event.getBlock();
         Material brokenType = block.getType();
 
-        if (!LOG_TO_LEAF.containsKey(brokenType))
-            return;
-
+        if (!LOG_TO_LEAF.containsKey(brokenType)) return;
         event.setCancelled(true);
+
         Player player = event.getPlayer();
         Material leafType = LOG_TO_LEAF.get(brokenType);
 
@@ -81,51 +80,45 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         List<Location> logLocations = new ArrayList<>();
         List<Location> leafLocations = new ArrayList<>();
 
+        // соберём все брёвна и листья
         for (Block b : blocks) {
             Material type = b.getType();
             if (type == logType || type == leafType) {
-                world.spawnParticle(
-                        Particle.BLOCK,
-                        b.getLocation().add(0.5, 0.5, 0.5),
-                        8, 0.3, 0.3, 0.3,
-                        b.getBlockData()
-                );
+                world.spawnParticle(Particle.BLOCK, b.getLocation().add(0.5, 0.5, 0.5),
+                        8, 0.3, 0.3, 0.3, b.getBlockData());
                 world.playSound(b.getLocation(), Sound.BLOCK_GRASS_BREAK, 0.6f, 1.2f);
-                if (type == logType)
-                    logLocations.add(b.getLocation());
-                else
-                    leafLocations.add(b.getLocation());
+
+                if (type == logType) logLocations.add(b.getLocation());
+                else leafLocations.add(b.getLocation());
                 b.setType(Material.AIR);
             }
         }
 
-        // Определяем позицию земли под деревом
         Location base = findGroundBelow(world, player.getLocation());
 
-        // ——— Дропаем бревна вниз ———
+        // Брёвна: столько, сколько было
         for (Location loc : logLocations) {
             Location dropLoc = findGroundBelow(world, loc);
             world.dropItemNaturally(dropLoc, new ItemStack(logType, 1));
         }
 
-        // ——— Ограниченный дроп листвы 10–15 шт ———
-        int maxLeaves = Math.min(leafLocations.size(), 15);
-        int leafCountToDrop = Math.max(10, maxLeaves);
+        // Листья: 10–15 шт.
+        int leavesToDrop = Math.min(Math.max(10, leafLocations.size()), 15);
         Collections.shuffle(leafLocations);
-        List<Location> dropLeaves = leafLocations.subList(0, leafCountToDrop);
-        for (Location loc : dropLeaves) {
-            Location dropLoc = findGroundBelow(world, loc);
+        for (int i = 0; i < leavesToDrop && i < leafLocations.size(); i++) {
+            Location dropLoc = findGroundBelow(world, leafLocations.get(i));
             world.dropItemNaturally(dropLoc, new ItemStack(leafType, 1));
         }
 
-        // ——— Остальной дроп (палочки, фрукты, саженцы) ———
+        // Остальной дроп
         dropExtraLoot(world, base, leafType);
     }
 
     private Location findGroundBelow(World world, Location start) {
         Location loc = start.clone();
         Block current = world.getBlockAt(loc);
-        while (current.getY() > world.getMinHeight() && (current.getType() == Material.AIR || current.isPassable())) {
+        while (current.getY() > world.getMinHeight()
+                && (current.getType() == Material.AIR || current.isPassable())) {
             loc.subtract(0, 1, 0);
             current = world.getBlockAt(loc);
         }
@@ -138,20 +131,20 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Material sapling = getSaplingForLeaf(leafType);
         Material fruit = getFruitForLeaf(leafType);
 
-        // палочки
-        int stickCount = random.nextInt(3) + 5; // 5–7
+        // Палки 1–5 шт.
+        int stickCount = random.nextInt(5) + 1;
         world.dropItemNaturally(base, new ItemStack(Material.STICK, stickCount));
 
-        // фрукты 1–5, падают на землю
-        if (fruit != null) {
-            int fruitCount = random.nextInt(5) + 1;
-            world.dropItemNaturally(base, new ItemStack(fruit, fruitCount));
-        }
-
-        // саженцы 1–3, тоже на землю
+        // Саженцы 1–3 шт.
         if (sapling != null) {
             int saplingCount = random.nextInt(3) + 1;
             world.dropItemNaturally(base, new ItemStack(sapling, saplingCount));
+        }
+
+        // Фрукты 2–4 шт.
+        if (fruit != null) {
+            int fruitCount = random.nextInt(3) + 2;
+            world.dropItemNaturally(base, new ItemStack(fruit, fruitCount));
         }
     }
 
