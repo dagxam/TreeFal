@@ -99,54 +99,59 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             }
         }
 
+        // Определяем позицию земли под деревом
+        Location base = findGroundBelow(world, player.getLocation());
+
         // ——— Дропаем бревна вниз ———
         for (Location loc : logLocations) {
-            Location dropLoc = loc.clone();
-            Block below = world.getBlockAt(dropLoc);
-            while (below.getY() > world.getMinHeight() && (below.getType() == Material.AIR || below.isPassable())) {
-                dropLoc.subtract(0, 1, 0);
-                below = world.getBlockAt(dropLoc);
-            }
-            dropLoc.add(0, 1, 0);
+            Location dropLoc = findGroundBelow(world, loc);
             world.dropItemNaturally(dropLoc, new ItemStack(logType, 1));
         }
 
         // ——— Ограниченный дроп листвы 10–15 шт ———
         int maxLeaves = Math.min(leafLocations.size(), 15);
-        int minLimit = 10;
-        int leafCountToDrop = Math.max(minLimit, maxLeaves);
-
+        int leafCountToDrop = Math.max(10, maxLeaves);
         Collections.shuffle(leafLocations);
         List<Location> dropLeaves = leafLocations.subList(0, leafCountToDrop);
-
         for (Location loc : dropLeaves) {
-            world.dropItemNaturally(loc.add(0.5, 0.2, 0.5), new ItemStack(leafType, 1));
+            Location dropLoc = findGroundBelow(world, loc);
+            world.dropItemNaturally(dropLoc, new ItemStack(leafType, 1));
         }
 
-        // Добавочный дроп палок, фруктов и саженцев
-        dropExtraLoot(world, player.getLocation(), leafType);
+        // ——— Остальной дроп (палочки, фрукты, саженцы) ———
+        dropExtraLoot(world, base, leafType);
     }
 
-    private void dropExtraLoot(World world, Location loc, Material leafType) {
+    private Location findGroundBelow(World world, Location start) {
+        Location loc = start.clone();
+        Block current = world.getBlockAt(loc);
+        while (current.getY() > world.getMinHeight() && (current.getType() == Material.AIR || current.isPassable())) {
+            loc.subtract(0, 1, 0);
+            current = world.getBlockAt(loc);
+        }
+        loc.add(0, 1, 0);
+        return loc;
+    }
+
+    private void dropExtraLoot(World world, Location base, Material leafType) {
         Random random = new Random();
         Material sapling = getSaplingForLeaf(leafType);
         Material fruit = getFruitForLeaf(leafType);
 
-        // Палки
-        int stickCount = random.nextInt(3) + 5; // 5–7 палок
-        if (stickCount > 0)
-            world.dropItemNaturally(loc, new ItemStack(Material.STICK, stickCount));
+        // палочки
+        int stickCount = random.nextInt(3) + 5; // 5–7
+        world.dropItemNaturally(base, new ItemStack(Material.STICK, stickCount));
 
-        // Фрукты: 1–5, если доступны
+        // фрукты 1–5, падают на землю
         if (fruit != null) {
-            int fruitCount = random.nextInt(5) + 1; // 1-5 фруктов
-            world.dropItemNaturally(loc, new ItemStack(fruit, fruitCount));
+            int fruitCount = random.nextInt(5) + 1;
+            world.dropItemNaturally(base, new ItemStack(fruit, fruitCount));
         }
 
-        // Саженцы: 1–3, как и было
+        // саженцы 1–3, тоже на землю
         if (sapling != null) {
             int saplingCount = random.nextInt(3) + 1;
-            world.dropItemNaturally(loc, new ItemStack(sapling, saplingCount));
+            world.dropItemNaturally(base, new ItemStack(sapling, saplingCount));
         }
     }
 
