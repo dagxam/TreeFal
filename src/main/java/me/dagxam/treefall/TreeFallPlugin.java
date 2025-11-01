@@ -81,7 +81,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         List<Location> logLocations = new ArrayList<>();
         List<Location> leafLocations = new ArrayList<>();
 
-        // Удаляем дерево с эффектами и запоминаем координаты
         for (Block b : blocks) {
             Material type = b.getType();
             if (type == logType || type == leafType) {
@@ -100,7 +99,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             }
         }
 
-        // Дропаeм бревна: каждое падает вниз по Y, пока не встретит землю
+        // ——— Дропаем бревна вниз ———
         for (Location loc : logLocations) {
             Location dropLoc = loc.clone();
             Block below = world.getBlockAt(dropLoc);
@@ -108,17 +107,23 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                 dropLoc.subtract(0, 1, 0);
                 below = world.getBlockAt(dropLoc);
             }
-            // ставим чуть выше найденного блока, чтобы предмет оказался на поверхности
             dropLoc.add(0, 1, 0);
             world.dropItemNaturally(dropLoc, new ItemStack(logType, 1));
         }
 
-        // Дропаeм листья: каждый блок листвы дропается на месте (один в один)
-        for (Location loc : leafLocations) {
+        // ——— Ограниченный дроп листвы 10–15 шт ———
+        int maxLeaves = Math.min(leafLocations.size(), 15);
+        int minLimit = 10;
+        int leafCountToDrop = Math.max(minLimit, maxLeaves);
+
+        Collections.shuffle(leafLocations);
+        List<Location> dropLeaves = leafLocations.subList(0, leafCountToDrop);
+
+        for (Location loc : dropLeaves) {
             world.dropItemNaturally(loc.add(0.5, 0.2, 0.5), new ItemStack(leafType, 1));
         }
 
-        // Дополнительный дроп (палки, фрукты, саженцы)
+        // Добавочный дроп палок, фруктов и саженцев
         dropExtraLoot(world, player.getLocation(), leafType);
     }
 
@@ -127,16 +132,22 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Material sapling = getSaplingForLeaf(leafType);
         Material fruit = getFruitForLeaf(leafType);
 
-        int stickCount = random.nextInt(3) + 5;         // 5–7 палок
-        int fruitCount = (fruit != null) ? random.nextInt(3) + 2 : 0;   // 2–4 плодов
-        int saplingCount = (sapling != null) ? random.nextInt(3) + 1 : 0; // 1–3 саженца
-
+        // Палки
+        int stickCount = random.nextInt(3) + 5; // 5–7 палок
         if (stickCount > 0)
             world.dropItemNaturally(loc, new ItemStack(Material.STICK, stickCount));
-        if (fruitCount > 0)
+
+        // Фрукты: 1–5, если доступны
+        if (fruit != null) {
+            int fruitCount = random.nextInt(5) + 1; // 1-5 фруктов
             world.dropItemNaturally(loc, new ItemStack(fruit, fruitCount));
-        if (saplingCount > 0)
+        }
+
+        // Саженцы: 1–3, как и было
+        if (sapling != null) {
+            int saplingCount = random.nextInt(3) + 1;
             world.dropItemNaturally(loc, new ItemStack(sapling, saplingCount));
+        }
     }
 
     private Material getSaplingForLeaf(Material leafType) {
