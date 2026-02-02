@@ -61,37 +61,58 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         TreeBlocks tree = collectTree(trunk.base, maxBlocks);
         if (tree.logs.size() < minHeight) return;
 
-        // Take over
         event.setCancelled(true);
 
         World world = base.getWorld();
         Location dropLoc = findGroundBelow(world, base.getLocation());
         boolean effects = getConfig().getBoolean("effects.enabled", true);
 
-        // Chances per leaf (converted to aggregated 1..3)
-        double stickChance   = clamp01(getConfig().getDouble("drop.chance.stick", 0.02));
-        double fruitChance   = clamp01(getConfig().getDouble("drop.chance.fruit", 0.01));
-        double saplingChance = clamp01(getConfig().getDouble("drop.chance.sapling", 0.05));
+        // Chances per leaf (aggregated to 1..3)
+        double stickChance = clamp01(getConfig().getDouble("drop.chance.stick", 0.02));
+        double fruitChance = clamp01(getConfig().getDouble("drop.chance.fruit", 0.01));
+        double sapChance   = clamp01(getConfig().getDouble("drop.chance.sapling", 0.05));
 
         int leafCount = tree.leaves.size();
 
-        // ✅ ВАЖНО: определяем тип дерева ДО удаления листьев
+        // Determine sapling/apple type BEFORE removing leaves
         Material leafSample = getAnyLeafMaterial(tree);
         Material saplingType = getSaplingForLeaf(leafSample);
         boolean appleTree = isAppleLeaf(leafSample);
 
-        // ─── DROP LEAVES (как блоки) ───
+        // ─────────────────────────────────────────
+        // ✅ ЛИСТЬЯ: дроп 10–20 блоков (чем больше дерево, тем ближе к 20)
+        // При этом ВСЕ листья удаляются из мира.
+        // ─────────────────────────────────────────
+
+        int leafDropTarget = computeLeafDropTarget(leafCount);
+
+        // выбираем случайные листья, которые будут дропаться
+        List<Block> leafList = new ArrayList<>(tree.leaves);
+        Collections.shuffle(leafList, random);
+
+        Set<Block> toDrop = new HashSet<>();
+        for (int i = 0; i < leafList.size() && toDrop.size() < leafDropTarget; i++) {
+            toDrop.add(leafList.get(i));
+        }
+
+        // удаляем все листья, но считаем дроп только для выбранных
         Map<Material, Integer> leafDrops = new HashMap<>();
         for (Block b : tree.leaves) {
             if (effects) fx(world, b);
-            leafDrops.merge(b.getType(), 1, Integer::sum);
+
+            if (toDrop.contains(b)) {
+                leafDrops.merge(b.getType(), 1, Integer::sum);
+            }
+
             b.setType(Material.AIR, false);
         }
+
+        // дропаем листья стеками (не кучей)
         for (var e : leafDrops.entrySet()) {
             dropInStacks(world, dropLoc, new ItemStack(e.getKey()), e.getValue());
         }
 
-        // ─── DROP LOGS/WOOD (exact type, exact count) ───
+        // ─── DROP LOGS/WOOD (1:1 exact count by type) ───
         Map<Material, Integer> logDrops = new HashMap<>();
         for (Block b : tree.logs) {
             if (effects) fx(world, b);
@@ -104,45 +125,64 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
 
         // ─── BONUS: sticks 1..3 ───
         int sticks = calculateAggregatedAmount(leafCount, stickChance, 1, 3);
-        if (sticks > 0) {
-            world.dropItemNaturally(dropLoc, new ItemStack(Material.STICK, sticks));
-        }
+        if (sticks > 0) world.dropItemNaturally(dropLoc, new ItemStack(Material.STICK, sticks));
 
-        // ─── BONUS: saplings 1..3 ───
+        // ─── BONUS: saplings 1..3 (only if we know sapling type) ───
         if (saplingType != null) {
-            int saplings = calculateAggregatedAmount(leafCount, saplingChance, 1, 3);
-            if (saplings > 0) {
-                world.dropItemNaturally(dropLoc, new ItemStack(saplingType, saplings));
-            }
-        } else {
-            // Если листья модовые/непонятные — саженцы не дропаем (иначе будет бредовый дроп)
+            int saplings = calculateAggregatedAmount(leafCount, sapChance, 1, 3);
+            if (saplings > 0) world.dropItemNaturally(dropLoc, new ItemStack(saplingType, saplings));
         }
 
-        // ─── BONUS: apples 1..3 (только дуб/тёмный дуб) ───
+        // ─── BONUS: apples 1..3 (oak/dark oak only) ───
         if (appleTree) {
-            int fruits = calculateAggregatedAmount(leafCount, fruitChance, 1, 3);
-            if (fruits > 0) {
-                world.dropItemNaturally(dropLoc, new ItemStack(Material.APPLE, fruits));
-            }
+            int apples = calculateAggregatedAmount(leafCount, fruitChance, 1, 3);
+            if (apples > 0) world.dropItemNaturally(dropLoc, new ItemStack(Material.APPLE, apples));
         }
 
-        // Tool damage (optional)
         if (getConfig().getBoolean("damage-tool", true)) {
             damageTool(player, tree.logs.size());
         }
     }
 
     // ─────────────────────────────
-    // Aggregated drop calculation
+    // ✅ Leaf drop scaling: 10..20
+    // ─────────────────────────────
+
+    /**
+     * Returns how many leaf BLOCKS to drop for this tree:
+     * small tree -> ~10, big tree -> ~20.
+     * We still remove all leaves from the world.
+     */
+    private int computeLeafDropTarget(int leafCount) {
+        if (leafCount <= 0) return 0;
+
+        // thresholds chosen to feel natural:
+        // <=40 leaves => 10 drops
+        // >=160 leaves => 20 drops
+        int min = 10;
+        int max = 20;
+
+        int low = 40;
+        int high = 160;
+
+        if (leafCount <= low) return Math.min(min, leafCount);
+        if (leafCount >= high) return Math.min(max, leafCount);
+
+        double t = (leafCount - low) / (double) (high - low); // 0..1
+        int target = (int) Math.round(min + t * (max - min));
+        target = Math.max(min, Math.min(max, target));
+        return Math.min(target, leafCount);
+    }
+
+    // ─────────────────────────────
+    // Aggregated drop (probabilistic rounding)
     // ─────────────────────────────
 
     private int calculateAggregatedAmount(int leafCount, double chancePerLeaf, int min, int max) {
         if (leafCount <= 0 || chancePerLeaf <= 0) return min;
-
         double expected = leafCount * chancePerLeaf;
         int base = (int) Math.floor(expected);
         if (random.nextDouble() < (expected - base)) base++;
-
         if (base < min) base = min;
         if (base > max) base = max;
         return base;
@@ -231,9 +271,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     // ─────────────────────────────
 
     private Material getAnyLeafMaterial(TreeBlocks tree) {
-        for (Block b : tree.leaves) {
-            return b.getType();
-        }
+        for (Block b : tree.leaves) return b.getType();
         return null;
     }
 
@@ -252,7 +290,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
             case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
             case CHERRY_LEAVES -> Material.CHERRY_SAPLING;
-            default -> null; // модовые листья: без маппинга
+            default -> null;
         };
     }
 
