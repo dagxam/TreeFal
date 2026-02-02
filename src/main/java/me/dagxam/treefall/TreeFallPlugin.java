@@ -15,7 +15,12 @@ import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
+import java.lang.reflect.Method;
+import java.net.URL;
 import java.util.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 public class TreeFallPlugin extends JavaPlugin implements Listener {
 
@@ -23,17 +28,37 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     private final Random random = new Random();
     private boolean worldGuardPresent;
 
+    // ===== "big tree" threshold =====
+    private static final int BIG_TREE_LEAVES = 160;
+
+    // ===== RealisticSeasons hook (dynamic class discovery) =====
+    private RealisticSeasonsHook rsHook;
+
     @Override
     public void onEnable() {
         saveDefaultConfig();
         getServer().getPluginManager().registerEvents(this, this);
+
         Plugin wg = getServer().getPluginManager().getPlugin("WorldGuard");
         worldGuardPresent = wg != null && wg.isEnabled();
-        getLogger().info("TreeFall enabled | WorldGuard=" + worldGuardPresent);
+
+        Plugin rs = getServer().getPluginManager().getPlugin("RealisticSeasons");
+        if (rs != null && rs.isEnabled()) {
+            rsHook = new RealisticSeasonsHook(rs, getLogger());
+            if (!rsHook.init()) {
+                rsHook = null;
+                getLogger().warning("RealisticSeasons detected, but API hook failed. Seasonal logic disabled.");
+            } else {
+                getLogger().info("RealisticSeasons detected. Seasonal logic enabled.");
+            }
+        } else {
+            rsHook = null;
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onLogBreak(BlockBreakEvent event) {
+
         if (!getConfig().getBoolean("enabled", true)) return;
 
         Block base = event.getBlock();
@@ -57,108 +82,120 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         if (hasSideLogsAtBase(trunk.base)) return;
         if (!hasModdedCanopyAbove(trunk.top)) return;
 
-        int maxBlocks = Math.max(64, getConfig().getInt("max-blocks", 512));
-        TreeBlocks tree = collectTree(trunk.base, maxBlocks);
+        // ===== Fix for big trees leaving top blocks =====
+        // dynamic limit: bigger trees -> higher scan cap
+        int baseLimit = Math.max(64, getConfig().getInt("max-blocks", 512));
+        int firstTryLimit = Math.max(baseLimit, 700);
+        TreeBlocks tree = collectTree(trunk.base, firstTryLimit);
+
+        // if looks like big tree or we nearly hit limit -> rescan with much bigger cap
+        if (tree.logs.size() + tree.leaves.size() >= firstTryLimit - 10 || tree.leaves.size() >= BIG_TREE_LEAVES) {
+            tree = collectTree(trunk.base, Math.max(firstTryLimit, 2200));
+        }
+
         if (tree.logs.size() < minHeight) return;
 
         event.setCancelled(true);
 
         World world = base.getWorld();
-        Location dropLoc = findGroundBelow(world, base.getLocation());
-        boolean effects = getConfig().getBoolean("effects.enabled", true);
-
-        // Chances per leaf (aggregated to 1..3)
-        double stickChance = clamp01(getConfig().getDouble("drop.chance.stick", 0.02));
-        double fruitChance = clamp01(getConfig().getDouble("drop.chance.fruit", 0.01));
-        double sapChance   = clamp01(getConfig().getDouble("drop.chance.sapling", 0.05));
+        Location center = base.getLocation();
 
         int leafCount = tree.leaves.size();
+        boolean bigTree = leafCount >= BIG_TREE_LEAVES;
 
-        // Determine sapling/apple type BEFORE removing leaves
+        // ===== spread drop under tree size =====
+        double spread = bigTree ? 3.5 : 1.8;
+
+        // Determine type BEFORE removing leaves
         Material leafSample = getAnyLeafMaterial(tree);
         Material saplingType = getSaplingForLeaf(leafSample);
-        boolean appleTree = isAppleLeaf(leafSample);
+        boolean appleTree = (leafSample == Material.OAK_LEAVES || leafSample == Material.DARK_OAK_LEAVES);
 
-        // ─────────────────────────────────────────
-        // ✅ ЛИСТЬЯ: дроп 10–20 блоков (чем больше дерево, тем ближе к 20)
-        // При этом ВСЕ листья удаляются из мира.
-        // ─────────────────────────────────────────
-
+        // ===== Base leaf drop (10..20 depending on size) =====
         int leafDropTarget = computeLeafDropTarget(leafCount);
 
-        // выбираем случайные листья, которые будут дропаться
+        // ===== RealisticSeasons season =====
+        String season = (rsHook != null) ? rsHook.getSeasonName(world) : null; // "SPRING", "SUMMER", "AUTUMN"/"FALL", "WINTER"
+
+        // ===== Seasonal tweaks =====
+        // AUTUMN/FALL: more falling leaves
+        if (season != null && (season.equals("AUTUMN") || season.equals("FALL"))) {
+            leafDropTarget = Math.min(leafDropTarget + 6, 26);
+        }
+        // WINTER: almost no leaves + no apples
+        boolean winter = season != null && season.equals("WINTER");
+        if (winter) {
+            leafDropTarget = Math.max(0, leafDropTarget - 8); // часто 0..12
+        }
+
+        // ===== Leaf drops: pick random leaf blocks to drop (target count), but remove ALL leaves =====
         List<Block> leafList = new ArrayList<>(tree.leaves);
         Collections.shuffle(leafList, random);
 
-        Set<Block> toDrop = new HashSet<>();
-        for (int i = 0; i < leafList.size() && toDrop.size() < leafDropTarget; i++) {
-            toDrop.add(leafList.get(i));
+        Set<Block> toDropLeaves = new HashSet<>();
+        for (int i = 0; i < leafList.size() && toDropLeaves.size() < leafDropTarget; i++) {
+            toDropLeaves.add(leafList.get(i));
         }
 
-        // удаляем все листья, но считаем дроп только для выбранных
         Map<Material, Integer> leafDrops = new HashMap<>();
         for (Block b : tree.leaves) {
-            if (effects) fx(world, b);
-
-            if (toDrop.contains(b)) {
+            if (toDropLeaves.contains(b)) {
                 leafDrops.merge(b.getType(), 1, Integer::sum);
             }
-
             b.setType(Material.AIR, false);
         }
+        dropScattered(world, center, leafDrops, spread);
 
-        // дропаем листья стеками (не кучей)
-        for (var e : leafDrops.entrySet()) {
-            dropInStacks(world, dropLoc, new ItemStack(e.getKey()), e.getValue());
-        }
-
-        // ─── DROP LOGS/WOOD (1:1 exact count by type) ───
+        // ===== Logs drop 1:1 exact type =====
         Map<Material, Integer> logDrops = new HashMap<>();
         for (Block b : tree.logs) {
-            if (effects) fx(world, b);
             logDrops.merge(b.getType(), 1, Integer::sum);
             b.setType(Material.AIR, false);
         }
-        for (var e : logDrops.entrySet()) {
-            dropInStacks(world, dropLoc, new ItemStack(e.getKey()), e.getValue());
-        }
+        dropScattered(world, center, logDrops, spread);
 
-        // ─── BONUS: sticks 1..3 ───
+        // ===== Sticks (keep as-is, aggregated 1..3) =====
+        double stickChance = clamp01(getConfig().getDouble("drop.chance.stick", 0.02));
         int sticks = calculateAggregatedAmount(leafCount, stickChance, 1, 3);
-        if (sticks > 0) world.dropItemNaturally(dropLoc, new ItemStack(Material.STICK, sticks));
+        if (sticks > 0) scatterItem(world, center, new ItemStack(Material.STICK, sticks), spread);
 
-        // ─── BONUS: saplings 1..3 (only if we know sapling type) ───
+        // ===== Saplings (leave as-is, aggregated 1..3), but SPRING bonus =====
+        double sapChance = clamp01(getConfig().getDouble("drop.chance.sapling", 0.05));
         if (saplingType != null) {
             int saplings = calculateAggregatedAmount(leafCount, sapChance, 1, 3);
-            if (saplings > 0) world.dropItemNaturally(dropLoc, new ItemStack(saplingType, saplings));
+
+            // SPRING bonus: +1 sapling (cap 3)
+            if (season != null && season.equals("SPRING")) {
+                saplings = Math.min(3, saplings + 1);
+            }
+
+            if (saplings > 0) scatterItem(world, center, new ItemStack(saplingType, saplings), spread);
         }
 
-        // ─── BONUS: apples 1..3 (oak/dark oak only) ───
-        if (appleTree) {
-            int apples = calculateAggregatedAmount(leafCount, fruitChance, 1, 3);
-            if (apples > 0) world.dropItemNaturally(dropLoc, new ItemStack(Material.APPLE, apples));
+        // ===== Apples: small=3 big=5, but WINTER => 0 =====
+        if (appleTree && !winter) {
+            int apples = bigTree ? 5 : 3;
+
+            // small summer vibe (optional): +1 apple in SUMMER, cap 6
+            if (season != null && season.equals("SUMMER")) {
+                apples = Math.min(6, apples + 1);
+            }
+
+            scatterItem(world, center, new ItemStack(Material.APPLE, apples), spread);
         }
 
+        // Tool damage (as-is)
         if (getConfig().getBoolean("damage-tool", true)) {
             damageTool(player, tree.logs.size());
         }
     }
 
-    // ─────────────────────────────
-    // ✅ Leaf drop scaling: 10..20
-    // ─────────────────────────────
-
-    /**
-     * Returns how many leaf BLOCKS to drop for this tree:
-     * small tree -> ~10, big tree -> ~20.
-     * We still remove all leaves from the world.
-     */
+    // =========================================================
+    // Leaf drop scaling: 10..20 (small->10, big->20)
+    // =========================================================
     private int computeLeafDropTarget(int leafCount) {
         if (leafCount <= 0) return 0;
 
-        // thresholds chosen to feel natural:
-        // <=40 leaves => 10 drops
-        // >=160 leaves => 20 drops
         int min = 10;
         int max = 20;
 
@@ -174,15 +211,38 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return Math.min(target, leafCount);
     }
 
-    // ─────────────────────────────
-    // Aggregated drop (probabilistic rounding)
-    // ─────────────────────────────
+    // =========================================================
+    // Scattered drops (spread by tree size)
+    // =========================================================
+    private void dropScattered(World w, Location center, Map<Material, Integer> items, double radius) {
+        for (var e : items.entrySet()) {
+            int left = e.getValue();
+            while (left > 0) {
+                int give = Math.min(64, left);
+                ItemStack it = new ItemStack(e.getKey(), give);
+                scatterItem(w, center, it, radius);
+                left -= give;
+            }
+        }
+    }
 
+    private void scatterItem(World w, Location center, ItemStack it, double radius) {
+        double dx = (random.nextDouble() - 0.5) * radius;
+        double dz = (random.nextDouble() - 0.5) * radius;
+        Location l = center.clone().add(dx, 0.2, dz);
+        w.dropItemNaturally(l, it);
+    }
+
+    // =========================================================
+    // Aggregated drop calculation (same as before)
+    // =========================================================
     private int calculateAggregatedAmount(int leafCount, double chancePerLeaf, int min, int max) {
         if (leafCount <= 0 || chancePerLeaf <= 0) return min;
+
         double expected = leafCount * chancePerLeaf;
         int base = (int) Math.floor(expected);
         if (random.nextDouble() < (expected - base)) base++;
+
         if (base < min) base = min;
         if (base > max) base = max;
         return base;
@@ -192,10 +252,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return Math.max(0, Math.min(1, v));
     }
 
-    // ─────────────────────────────
-    // Tree detection
-    // ─────────────────────────────
-
+    // =========================================================
+    // Tree detection (same as before)
+    // =========================================================
     private TrunkInfo analyzeTrunk(Block start) {
         Block c = start;
         int h = 0;
@@ -266,17 +325,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return new TreeBlocks(logs, leaves);
     }
 
-    // ─────────────────────────────
-    // Leaf sample / saplings / apples
-    // ─────────────────────────────
-
     private Material getAnyLeafMaterial(TreeBlocks tree) {
         for (Block b : tree.leaves) return b.getType();
         return null;
-    }
-
-    private boolean isAppleLeaf(Material leaf) {
-        return leaf == Material.OAK_LEAVES || leaf == Material.DARK_OAK_LEAVES;
     }
 
     private Material getSaplingForLeaf(Material leaf) {
@@ -290,38 +341,8 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
             case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
             case CHERRY_LEAVES -> Material.CHERRY_SAPLING;
-            default -> null;
+            default -> null; // modded leaves: no mapping
         };
-    }
-
-    // ─────────────────────────────
-    // Drops & FX
-    // ─────────────────────────────
-
-    private void fx(World w, Block b) {
-        w.spawnParticle(Particle.BLOCK, b.getLocation().add(0.5, 0.5, 0.5),
-                6, 0.25, 0.25, 0.25, b.getBlockData());
-        w.playSound(b.getLocation(), Sound.BLOCK_GRASS_BREAK, 0.5f, 1.2f);
-    }
-
-    private void dropInStacks(World world, Location loc, ItemStack item, int amount) {
-        int left = amount;
-        while (left > 0) {
-            int give = Math.min(64, left);
-            ItemStack stack = item.clone();
-            stack.setAmount(give);
-            world.dropItemNaturally(loc, stack);
-            left -= give;
-        }
-    }
-
-    private Location findGroundBelow(World w, Location l) {
-        Location c = l.clone();
-        while (c.getY() > w.getMinHeight()
-                && (w.getBlockAt(c).getType() == Material.AIR || w.getBlockAt(c).isPassable())) {
-            c.subtract(0, 1, 0);
-        }
-        return c.add(0, 1, 0);
     }
 
     private void damageTool(Player p, int uses) {
@@ -348,17 +369,14 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    // ─────────────────────────────
-    // WorldGuard (soft / reflection)
-    // ─────────────────────────────
-
+    // =========================================================
+    // WorldGuard (keep as-is / reflection) — same style as before
+    // =========================================================
     private boolean canBreakWorldGuard(Player player, Block block) {
         try {
             Class<?> wgPluginClass = Class.forName("com.sk89q.worldguard.bukkit.WorldGuardPlugin");
             Object wgPlugin = wgPluginClass.getMethod("inst").invoke(null);
-            Object localPlayer = wgPluginClass
-                    .getMethod("wrapPlayer", Player.class)
-                    .invoke(wgPlugin, player);
+            Object localPlayer = wgPluginClass.getMethod("wrapPlayer", Player.class).invoke(wgPlugin, player);
 
             Class<?> wgClass = Class.forName("com.sk89q.worldguard.WorldGuard");
             Object wg = wgClass.getMethod("getInstance").invoke(null);
@@ -395,6 +413,90 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         }
     }
 
+    // =========================================================
+    // Records
+    // =========================================================
     private record TrunkInfo(Block base, Block top, int height) {}
     private record TreeBlocks(Set<Block> logs, Set<Block> leaves) {}
+
+    // =========================================================
+    // RealisticSeasons dynamic API hook
+    // =========================================================
+    private static final class RealisticSeasonsHook {
+        private final Plugin realisticSeasons;
+        private final java.util.logging.Logger log;
+
+        private ClassLoader rsLoader;
+        private Class<?> seasonsApiClass;
+        private Method getInstance;
+        private Method getSeason; // (World)->Season
+        private Object seasonsApiInstance;
+
+        RealisticSeasonsHook(Plugin realisticSeasons, java.util.logging.Logger log) {
+            this.realisticSeasons = realisticSeasons;
+            this.log = log;
+        }
+
+        boolean init() {
+            try {
+                rsLoader = realisticSeasons.getClass().getClassLoader();
+
+                // find FQCN of SeasonsAPI by scanning the jar for .../SeasonsAPI.class
+                String seasonsApiFqcn = findClassInJar(realisticSeasons, "SeasonsAPI.class");
+                if (seasonsApiFqcn == null) {
+                    log.warning("[TreeFall] Could not find SeasonsAPI.class inside RealisticSeasons jar");
+                    return false;
+                }
+
+                seasonsApiClass = Class.forName(seasonsApiFqcn, true, rsLoader);
+                getInstance = seasonsApiClass.getMethod("getInstance");
+                seasonsApiInstance = getInstance.invoke(null);
+                getSeason = seasonsApiClass.getMethod("getSeason", World.class);
+
+                // quick sanity check call
+                Object seasonObj = getSeason.invoke(seasonsApiInstance, Bukkit.getWorlds().get(0));
+                if (seasonObj == null) {
+                    log.warning("[TreeFall] RealisticSeasons API returned null season");
+                }
+
+                return true;
+            } catch (Throwable t) {
+                log.warning("[TreeFall] RealisticSeasons hook error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+                return false;
+            }
+        }
+
+        String getSeasonName(World w) {
+            try {
+                Object seasonObj = getSeason.invoke(seasonsApiInstance, w);
+                if (seasonObj == null) return null;
+                // enum -> "SPRING"/"SUMMER"/"AUTUMN"/"FALL"/"WINTER"
+                return seasonObj.toString().toUpperCase(Locale.ROOT);
+            } catch (Throwable t) {
+                return null;
+            }
+        }
+
+        private static String findClassInJar(Plugin plugin, String classFileName) {
+            try {
+                URL url = plugin.getClass().getProtectionDomain().getCodeSource().getLocation();
+                File jarFile = new File(url.toURI());
+                try (JarFile jar = new JarFile(jarFile)) {
+                    Enumeration<JarEntry> en = jar.entries();
+                    while (en.hasMoreElements()) {
+                        JarEntry e = en.nextElement();
+                        String name = e.getName();
+                        if (name.endsWith(classFileName)) {
+                            // convert path -> fqcn
+                            String fqcn = name.replace('/', '.');
+                            fqcn = fqcn.substring(0, fqcn.length() - ".class".length());
+                            return fqcn;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            return null;
+        }
+    }
 }
