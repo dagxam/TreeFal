@@ -1,6 +1,11 @@
 name: TreeFall
-version: 1.3
+version: 1.4.0
 main: me.dagxam.treefall.TreeFallPlugin
 api-version: 1.21
 author: Dagxam
-description: Makes trees fall gradually when chopped.
+description: Breaks an entire tree (logs + leaves) safely with limits and config.
+
+permissions:
+  treefall.use:
+    description: Allows using TreeFall when breaking logs.
+    default: true
