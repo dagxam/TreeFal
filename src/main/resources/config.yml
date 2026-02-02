@@ -1,8 +1,34 @@
-# Вероятности выпадения предметов из листвы (0.0–1.0)
-drop:
-  sapling: 0.05   # 5 %
-  stick:   0.02   # 2 %
-  fruit:   0.01   # 1 %
+# TreeFall config
 
-# Лимит блоков в одном дереве (во избежание лагов)
+# Master switch
+enabled: true
+
+# Require permission "treefall.use"
+require-permission: true
+
+# Require an axe in main hand
+require-axe: true
+
+# Damage player's tool for each log removed (Unbreaking supported)
+damage-tool: true
+
+# Anti-grief: treat only real trees (requires leaves nearby)
+require-leaves-nearby: true
+leaves-check-radius: 3
+leaves-min-count: 6
+
+# Hard cap for logs+leaves collected per tree (lag protection)
 max-blocks: 512
+
+effects:
+  enabled: true
+
+drop:
+  # If true, sometimes drops leaf blocks as items (purely cosmetic / optional)
+  leaf-blocks: false
+
+  # Extra loot chances PER leaf block removed (0.0–1.0)
+  chance:
+    sapling: 0.05
+    stick: 0.02
+    fruit: 0.01
