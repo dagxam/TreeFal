@@ -51,6 +51,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
 
         if (worldGuardPresent && !canBreakWorldGuard(player, base)) return;
 
+        // Anti-building checks
         TrunkInfo trunk = analyzeTrunk(base);
         int minHeight = Math.max(3, getConfig().getInt("min-trunk-height", 4));
         if (trunk.height < minHeight) return;
@@ -61,26 +62,32 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         TreeBlocks tree = collectTree(trunk.base, maxBlocks);
         if (tree.logs.size() < minHeight) return;
 
+        // Take over
         event.setCancelled(true);
 
         World world = base.getWorld();
         Location dropLoc = findGroundBelow(world, base.getLocation());
         boolean effects = getConfig().getBoolean("effects.enabled", true);
 
-        // chances (per leaf)
-        double saplingChance = clamp01(getConfig().getDouble("drop.chance.sapling", 0.05));
+        // Chances per leaf (we convert to aggregated 1..3). You can tune these in config.
         double stickChance   = clamp01(getConfig().getDouble("drop.chance.stick", 0.02));
         double fruitChance   = clamp01(getConfig().getDouble("drop.chance.fruit", 0.01));
+        double saplingChance = clamp01(getConfig().getDouble("drop.chance.sapling", 0.05));
 
         int leafCount = tree.leaves.size();
 
-        // ─── remove leaves ───
+        // ─── DROP LEAVES (as blocks, exact amount, stacked) ───
+        Map<Material, Integer> leafDrops = new HashMap<>();
         for (Block b : tree.leaves) {
             if (effects) fx(world, b);
+            leafDrops.merge(b.getType(), 1, Integer::sum);
             b.setType(Material.AIR, false);
         }
+        for (var e : leafDrops.entrySet()) {
+            dropInStacks(world, dropLoc, new ItemStack(e.getKey()), e.getValue());
+        }
 
-        // ─── remove logs + exact drops ───
+        // ─── DROP LOGS/WOOD (exact type, exact amount, stacked) ───
         Map<Material, Integer> logDrops = new HashMap<>();
         for (Block b : tree.logs) {
             if (effects) fx(world, b);
@@ -91,37 +98,54 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             dropInStacks(world, dropLoc, new ItemStack(e.getKey()), e.getValue());
         }
 
-        // ─── aggregated bonus drops ───
-        int saplings = calculateAggregatedAmount(leafCount, saplingChance, 1, 5);
-        int sticks   = calculateAggregatedAmount(leafCount, stickChance,   1, 5);
-        int fruits   = calculateAggregatedAmount(leafCount, fruitChance,   0, 5);
-
-        Material saplingType = getSaplingForTree(tree);
-        if (saplingType != null && saplings > 0) {
-            world.dropItemNaturally(dropLoc, new ItemStack(saplingType, saplings));
-        }
+        // ─── BONUS DROPS (1..3 each) ───
+        // sticks always 1..3
+        int sticks = calculateAggregatedAmount(leafCount, stickChance, 1, 3);
         if (sticks > 0) {
             world.dropItemNaturally(dropLoc, new ItemStack(Material.STICK, sticks));
         }
-        if (fruits > 0 && isAppleTree(tree)) {
-            world.dropItemNaturally(dropLoc, new ItemStack(Material.APPLE, fruits));
+
+        // saplings 1..3 if we can determine type
+        Material saplingType = getSaplingForTree(tree);
+        if (saplingType != null) {
+            int saplings = calculateAggregatedAmount(leafCount, saplingChance, 1, 3);
+            if (saplings > 0) {
+                world.dropItemNaturally(dropLoc, new ItemStack(saplingType, saplings));
+            }
         }
 
+        // fruits (apples) 1..3 ONLY for oak/dark oak
+        if (isAppleTree(tree)) {
+            int fruits = calculateAggregatedAmount(leafCount, fruitChance, 1, 3);
+            if (fruits > 0) {
+                world.dropItemNaturally(dropLoc, new ItemStack(Material.APPLE, fruits));
+            }
+        }
+
+        // Tool damage (optional)
         if (getConfig().getBoolean("damage-tool", true)) {
             damageTool(player, tree.logs.size());
         }
     }
 
     // ─────────────────────────────
-    // Calculations
+    // Aggregated drop calculation
     // ─────────────────────────────
 
+    /**
+     * Converts "chance per leaf" into an aggregated amount for the whole tree,
+     * then clamps to [min..max]. Uses probabilistic rounding.
+     */
     private int calculateAggregatedAmount(int leafCount, double chancePerLeaf, int min, int max) {
-        if (leafCount <= 0 || chancePerLeaf <= 0) return min == 0 ? 0 : min;
+        if (leafCount <= 0 || chancePerLeaf <= 0) return min;
+
         double expected = leafCount * chancePerLeaf;
         int base = (int) Math.floor(expected);
         if (random.nextDouble() < (expected - base)) base++;
-        return Math.max(min, Math.min(max, base));
+
+        if (base < min) base = min;
+        if (base > max) base = max;
+        return base;
     }
 
     private static double clamp01(double v) {
@@ -143,28 +167,33 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     private boolean hasSideLogsAtBase(Block base) {
-        for (int dx = -1; dx <= 1; dx++)
-            for (int dz = -1; dz <= 1; dz++)
-                if (!(dx == 0 && dz == 0)
-                        && Tag.LOGS.isTagged(base.getRelative(dx, 0, dz).getType()))
-                    return true;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (dx == 0 && dz == 0) continue;
+                if (Tag.LOGS.isTagged(base.getRelative(dx, 0, dz).getType())) return true;
+            }
+        }
         return false;
     }
 
     private boolean hasModdedCanopyAbove(Block top) {
-        for (int dx = -2; dx <= 2; dx++)
-            for (int dy = 1; dy <= 5; dy++)
-                for (int dz = -2; dz <= 2; dz++)
-                    if (isLeafLike(top.getRelative(dx, dy, dz)))
-                        return true;
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = 1; dy <= 5; dy++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    if (isLeafLike(top.getRelative(dx, dy, dz))) return true;
+                }
+            }
+        }
         return false;
     }
 
     private boolean isLeafLike(Block b) {
         Material t = b.getType();
         if (Tag.LEAVES.isTagged(t)) return true;
+
         BlockData data = b.getBlockData();
         if (data instanceof Leaves) return true;
+
         String n = t.name();
         return n.contains("LEAVES") || n.contains("FOLIAGE")
                 || n.contains("NEEDLES") || n.contains("CANOPY");
@@ -185,17 +214,20 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             else if (isLeafLike(b)) leaves.add(b);
             else continue;
 
-            for (int dx = -1; dx <= 1; dx++)
-                for (int dy = -1; dy <= 1; dy++)
-                    for (int dz = -1; dz <= 1; dz++)
-                        if (!(dx == 0 && dy == 0 && dz == 0))
-                            q.add(b.getRelative(dx, dy, dz));
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        if (dx == 0 && dy == 0 && dz == 0) continue;
+                        q.add(b.getRelative(dx, dy, dz));
+                    }
+                }
+            }
         }
         return new TreeBlocks(logs, leaves);
     }
 
     // ─────────────────────────────
-    // Utils
+    // Drops & FX
     // ─────────────────────────────
 
     private void fx(World w, Block b) {
@@ -224,6 +256,38 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return c.add(0, 1, 0);
     }
 
+    private void damageTool(Player p, int uses) {
+        ItemStack tool = p.getInventory().getItemInMainHand();
+        if (tool == null || tool.getType() == Material.AIR) return;
+        if (!(tool.getItemMeta() instanceof Damageable dmg)) return;
+
+        int unbreaking = tool.getEnchantmentLevel(Enchantment.UNBREAKING);
+        int applied = 0;
+
+        for (int i = 0; i < uses; i++) {
+            if (unbreaking > 0) {
+                if (random.nextInt(unbreaking + 1) != 0) applied++;
+            } else {
+                applied++;
+            }
+        }
+
+        dmg.setDamage(dmg.getDamage() + applied);
+        tool.setItemMeta(dmg);
+
+        if (dmg.getDamage() >= tool.getType().getMaxDurability()) {
+            p.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
+        }
+    }
+
+    // ─────────────────────────────
+    // Saplings / Fruits helpers
+    // ─────────────────────────────
+
+    /**
+     * Determines sapling type based on first VANILLA leaf it finds.
+     * For unknown/modded leaves returns null (no sapling drops).
+     */
     private Material getSaplingForTree(TreeBlocks tree) {
         for (Block b : tree.leaves) {
             return switch (b.getType()) {
@@ -249,23 +313,8 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         return false;
     }
 
-    private void damageTool(Player p, int uses) {
-        ItemStack tool = p.getInventory().getItemInMainHand();
-        if (!(tool.getItemMeta() instanceof Damageable dmg)) return;
-
-        int unbreaking = tool.getEnchantmentLevel(Enchantment.UNBREAKING);
-        int applied = 0;
-        for (int i = 0; i < uses; i++) {
-            if (unbreaking > 0 && random.nextInt(unbreaking + 1) != 0) applied++;
-            else if (unbreaking == 0) applied++;
-        }
-        dmg.setDamage(dmg.getDamage() + applied);
-        tool.setItemMeta(dmg);
-        if (dmg.getDamage() >= tool.getType().getMaxDurability()) {
-            p.getInventory().setItemInMainHand(new ItemStack(Material.AIR));
-        }
-    }
-
+    // ─────────────────────────────
+    // WorldGuard (soft / reflection)
     // ─────────────────────────────
 
     private boolean canBreakWorldGuard(Player player, Block block) {
@@ -307,7 +356,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     .invoke(regions, localPlayer, build);
 
         } catch (Throwable t) {
-            return true;
+            return true; // if WG hook fails, don't block
         }
     }
 
