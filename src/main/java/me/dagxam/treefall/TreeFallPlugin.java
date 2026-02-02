@@ -15,7 +15,6 @@ import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.lang.reflect.Method;
 import java.util.*;
 
 public class TreeFallPlugin extends JavaPlugin implements Listener {
@@ -69,14 +68,19 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
         Location dropLoc = findGroundBelow(world, base.getLocation());
         boolean effects = getConfig().getBoolean("effects.enabled", true);
 
-        // Chances per leaf (we convert to aggregated 1..3). You can tune these in config.
+        // Chances per leaf (converted to aggregated 1..3)
         double stickChance   = clamp01(getConfig().getDouble("drop.chance.stick", 0.02));
         double fruitChance   = clamp01(getConfig().getDouble("drop.chance.fruit", 0.01));
         double saplingChance = clamp01(getConfig().getDouble("drop.chance.sapling", 0.05));
 
         int leafCount = tree.leaves.size();
 
-        // ─── DROP LEAVES (as blocks, exact amount, stacked) ───
+        // ✅ ВАЖНО: определяем тип дерева ДО удаления листьев
+        Material leafSample = getAnyLeafMaterial(tree);
+        Material saplingType = getSaplingForLeaf(leafSample);
+        boolean appleTree = isAppleLeaf(leafSample);
+
+        // ─── DROP LEAVES (как блоки) ───
         Map<Material, Integer> leafDrops = new HashMap<>();
         for (Block b : tree.leaves) {
             if (effects) fx(world, b);
@@ -87,7 +91,7 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             dropInStacks(world, dropLoc, new ItemStack(e.getKey()), e.getValue());
         }
 
-        // ─── DROP LOGS/WOOD (exact type, exact amount, stacked) ───
+        // ─── DROP LOGS/WOOD (exact type, exact count) ───
         Map<Material, Integer> logDrops = new HashMap<>();
         for (Block b : tree.logs) {
             if (effects) fx(world, b);
@@ -98,24 +102,24 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
             dropInStacks(world, dropLoc, new ItemStack(e.getKey()), e.getValue());
         }
 
-        // ─── BONUS DROPS (1..3 each) ───
-        // sticks always 1..3
+        // ─── BONUS: sticks 1..3 ───
         int sticks = calculateAggregatedAmount(leafCount, stickChance, 1, 3);
         if (sticks > 0) {
             world.dropItemNaturally(dropLoc, new ItemStack(Material.STICK, sticks));
         }
 
-        // saplings 1..3 if we can determine type
-        Material saplingType = getSaplingForTree(tree);
+        // ─── BONUS: saplings 1..3 ───
         if (saplingType != null) {
             int saplings = calculateAggregatedAmount(leafCount, saplingChance, 1, 3);
             if (saplings > 0) {
                 world.dropItemNaturally(dropLoc, new ItemStack(saplingType, saplings));
             }
+        } else {
+            // Если листья модовые/непонятные — саженцы не дропаем (иначе будет бредовый дроп)
         }
 
-        // fruits (apples) 1..3 ONLY for oak/dark oak
-        if (isAppleTree(tree)) {
+        // ─── BONUS: apples 1..3 (только дуб/тёмный дуб) ───
+        if (appleTree) {
             int fruits = calculateAggregatedAmount(leafCount, fruitChance, 1, 3);
             if (fruits > 0) {
                 world.dropItemNaturally(dropLoc, new ItemStack(Material.APPLE, fruits));
@@ -132,10 +136,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     // Aggregated drop calculation
     // ─────────────────────────────
 
-    /**
-     * Converts "chance per leaf" into an aggregated amount for the whole tree,
-     * then clamps to [min..max]. Uses probabilistic rounding.
-     */
     private int calculateAggregatedAmount(int leafCount, double chancePerLeaf, int min, int max) {
         if (leafCount <= 0 || chancePerLeaf <= 0) return min;
 
@@ -227,6 +227,36 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     // ─────────────────────────────
+    // Leaf sample / saplings / apples
+    // ─────────────────────────────
+
+    private Material getAnyLeafMaterial(TreeBlocks tree) {
+        for (Block b : tree.leaves) {
+            return b.getType();
+        }
+        return null;
+    }
+
+    private boolean isAppleLeaf(Material leaf) {
+        return leaf == Material.OAK_LEAVES || leaf == Material.DARK_OAK_LEAVES;
+    }
+
+    private Material getSaplingForLeaf(Material leaf) {
+        if (leaf == null) return null;
+        return switch (leaf) {
+            case OAK_LEAVES -> Material.OAK_SAPLING;
+            case BIRCH_LEAVES -> Material.BIRCH_SAPLING;
+            case SPRUCE_LEAVES -> Material.SPRUCE_SAPLING;
+            case JUNGLE_LEAVES -> Material.JUNGLE_SAPLING;
+            case ACACIA_LEAVES -> Material.ACACIA_SAPLING;
+            case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
+            case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
+            case CHERRY_LEAVES -> Material.CHERRY_SAPLING;
+            default -> null; // модовые листья: без маппинга
+        };
+    }
+
+    // ─────────────────────────────
     // Drops & FX
     // ─────────────────────────────
 
@@ -281,39 +311,6 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     // ─────────────────────────────
-    // Saplings / Fruits helpers
-    // ─────────────────────────────
-
-    /**
-     * Determines sapling type based on first VANILLA leaf it finds.
-     * For unknown/modded leaves returns null (no sapling drops).
-     */
-    private Material getSaplingForTree(TreeBlocks tree) {
-        for (Block b : tree.leaves) {
-            return switch (b.getType()) {
-                case OAK_LEAVES -> Material.OAK_SAPLING;
-                case BIRCH_LEAVES -> Material.BIRCH_SAPLING;
-                case SPRUCE_LEAVES -> Material.SPRUCE_SAPLING;
-                case JUNGLE_LEAVES -> Material.JUNGLE_SAPLING;
-                case ACACIA_LEAVES -> Material.ACACIA_SAPLING;
-                case DARK_OAK_LEAVES -> Material.DARK_OAK_SAPLING;
-                case MANGROVE_LEAVES -> Material.MANGROVE_PROPAGULE;
-                case CHERRY_LEAVES -> Material.CHERRY_SAPLING;
-                default -> null;
-            };
-        }
-        return null;
-    }
-
-    private boolean isAppleTree(TreeBlocks tree) {
-        for (Block b : tree.leaves) {
-            Material t = b.getType();
-            if (t == Material.OAK_LEAVES || t == Material.DARK_OAK_LEAVES) return true;
-        }
-        return false;
-    }
-
-    // ─────────────────────────────
     // WorldGuard (soft / reflection)
     // ─────────────────────────────
 
@@ -356,11 +353,9 @@ public class TreeFallPlugin extends JavaPlugin implements Listener {
                     .invoke(regions, localPlayer, build);
 
         } catch (Throwable t) {
-            return true; // if WG hook fails, don't block
+            return true;
         }
     }
-
-    // ─────────────────────────────
 
     private record TrunkInfo(Block base, Block top, int height) {}
     private record TreeBlocks(Set<Block> logs, Set<Block> leaves) {}
