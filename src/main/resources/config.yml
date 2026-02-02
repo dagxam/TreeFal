@@ -24,11 +24,7 @@ effects:
   enabled: true
 
 drop:
-  # If true, sometimes drops leaf blocks as items (purely cosmetic / optional)
-  leaf-blocks: false
-
-  # Extra loot chances PER leaf block removed (0.0–1.0)
+  leaf-blocks: true         # если хочешь чтобы листья выпадали как блоки — поставь true
   chance:
-    sapling: 0.05
-    stick: 0.02
-    fruit: 0.01
+    stick: 0.02              # 1–5 палок на дерево, зависит от листьев
+    apple: 0.01              # 0–5 яблок на дерево, зависит от листьев
