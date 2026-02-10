@@ -1,11 +1,21 @@
+# src/main/resources/plugin.yml
+
 name: TreeFall
-version: 1.4.0
+version: '2.0'
 main: me.dagxam.treefall.TreeFallPlugin
-api-version: 1.21
-author: Dagxam
-description: Breaks an entire tree (logs + leaves) safely with limits and config.
-softdepend: [RealisticSeasons]
+api-version: '1.20'
+description: Realistic tree felling with falling animation
+
+commands:
+  treefall:
+    description: TreeFall admin commands
+    usage: /treefall reload
+    permission: treefall.admin
+
 permissions:
   treefall.use:
-    description: Allows using TreeFall when breaking logs.
+    description: Allows using tree-fall mechanic
     default: true
+  treefall.admin:
+    description: Allows reloading config
+    default: op
