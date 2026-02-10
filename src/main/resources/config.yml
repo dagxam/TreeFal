@@ -1,31 +1,39 @@
-# TreeFall config
+# src/main/resources/config.yml
 
-# Master switch
+# TreeFall Configuration
+
 enabled: true
 
-# Require permission "treefall.use"
+# Require treefall.use permission
 require-permission: true
 
-# Require an axe in main hand
-require-axe: true
+# Sneak (shift) to disable tree-fall and break normally
+sneak-to-disable: true
 
-# Damage player's tool for each log removed (Unbreaking supported)
+# Damage the tool for each log broken
 damage-tool: true
 
-# Anti-grief: treat only real trees (requires leaves nearby)
-require-leaves-nearby: true
-leaves-check-radius: 3
-leaves-min-count: 6
+# Require an axe for trees taller than 6 blocks
+require-axe-for-big: false
 
-# Hard cap for logs+leaves collected per tree (lag protection)
+# Minimum trunk height to trigger tree-fall
+min-trunk-height: 4
+
+# Maximum blocks to scan for a single tree
 max-blocks: 512
 
-effects:
-  enabled: true
+# Cooldown between tree-fall activations per player (ms)
+cooldown-ms: 500
 
+# Animation settings
+animation:
+  blocks-per-tick: 18
+  tick-delay: 1
+  # Max FallingBlock entities spawned per tree (rest just disappear)
+  max-falling-blocks: 80
+
+# Drop chances per leaf block
 drop:
-  leaf-blocks: true         # если хочешь чтобы листья выпадали как блоки — поставь true
   chance:
-  sapling: 0.02   # 1–3 саженцев, зависит от размера дерева
-  stick: 0.01     # 1–5 палок
-  fruit: 0.05     # 0–5 яблок (только для подходящих деревьев)
+    stick: 0.02
+    sapling: 0.05
