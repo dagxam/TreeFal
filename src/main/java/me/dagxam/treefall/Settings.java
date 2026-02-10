@@ -1,58 +1,48 @@
+// src/main/java/me/dagxam/treefall/Settings.java
+
 package me.dagxam.treefall;
 
-import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
 
 public class Settings {
 
-    // General
-    boolean enabled = true;
-    boolean requirePermission = true;
-    boolean sneakToDisable = true;
-    boolean damageTool = true;
-    boolean requireAxeForBig = false;
-    boolean dropXp = false;
+    static final int BIG_TREE_LEAVES = 160;
 
-    // Tree detection
-    int minTrunkHeight = 4;
-    int maxBlocks = 512;
-    int maxHorizDist = 12;
-    int maxVertDist = 48;
+    final boolean enabled;
+    final boolean requirePermission;
+    final boolean sneakToDisable;
+    final boolean damageTool;
+    final boolean requireAxeForBig;
+    final int minTrunkHeight;
+    final int maxBlocks;
+    final long cooldownMs;
 
-    // Animation
-    int maxFallingBlocks = 80;
-    int blocksPerTick = 18;
-    long tickDelay = 1L;
-    int fallingBlockLifetimeTicks = 100;
+    final int animBlocksPerTick;
+    final long animTickDelay;
+    final int maxFallingBlocks;
 
-    // Drops
-    double stickChance = 0.02;
-    double saplingChance = 0.05;
+    final double stickChance;
+    final double saplingChance;
 
-    // Anti-spam
-    long cooldownMs = 500;
+    Settings(JavaPlugin plugin) {
+        plugin.reloadConfig();
+        var c = plugin.getConfig();
 
-    public void load(FileConfiguration config) {
-        enabled = config.getBoolean("enabled", true);
-        requirePermission = config.getBoolean("require-permission", true);
-        sneakToDisable = config.getBoolean("sneak-to-disable", true);
-        damageTool = config.getBoolean("damage-tool", true);
-        requireAxeForBig = config.getBoolean("require-axe-for-big", false);
-        dropXp = config.getBoolean("drop-xp", false);
+        enabled = c.getBoolean("enabled", true);
+        requirePermission = c.getBoolean("require-permission", true);
+        sneakToDisable = c.getBoolean("sneak-to-disable", true);
+        damageTool = c.getBoolean("damage-tool", true);
+        requireAxeForBig = c.getBoolean("require-axe-for-big", false);
+        minTrunkHeight = Math.max(3, c.getInt("min-trunk-height", 4));
+        maxBlocks = Math.max(64, c.getInt("max-blocks", 512));
+        cooldownMs = c.getLong("cooldown-ms", 500);
 
-        minTrunkHeight = Math.max(3, config.getInt("min-trunk-height", 4));
-        maxBlocks = Math.max(64, config.getInt("max-blocks", 512));
-        maxHorizDist = config.getInt("max-horizontal-distance", 12);
-        maxVertDist = config.getInt("max-vertical-distance", 48);
+        animBlocksPerTick = Math.max(8, c.getInt("animation.blocks-per-tick", 18));
+        animTickDelay = Math.max(1, c.getLong("animation.tick-delay", 1));
+        maxFallingBlocks = Math.max(10, c.getInt("animation.max-falling-blocks", 80));
 
-        maxFallingBlocks = config.getInt("animation.max-falling-blocks", 80);
-        blocksPerTick = Math.max(8, config.getInt("animation.blocks-per-tick", 18));
-        tickDelay = Math.max(1L, config.getLong("animation.tick-delay", 1L));
-        fallingBlockLifetimeTicks = config.getInt("animation.falling-block-lifetime-ticks", 100);
-
-        stickChance = clamp01(config.getDouble("drop.chance.stick", 0.02));
-        saplingChance = clamp01(config.getDouble("drop.chance.sapling", 0.05));
-
-        cooldownMs = config.getLong("cooldown-ms", 500);
+        stickChance = clamp01(c.getDouble("drop.chance.stick", 0.02));
+        saplingChance = clamp01(c.getDouble("drop.chance.sapling", 0.05));
     }
 
     private static double clamp01(double v) {
