@@ -47,10 +47,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         getLogger().info("TreeFall 1.5.0 enabled.");
     }
 
-    @Override public void onDisable() {
-        activeTrees.clear();
-        cooldowns.clear();
-    }
+    @Override public void onDisable() { activeTrees.clear(); cooldowns.clear(); }
 
     private void setupWorldGuard() {
         Plugin wg = getServer().getPluginManager().getPlugin("WorldGuard");
@@ -67,22 +64,16 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         rsHook = new RealisticSeasonsHook(rs, getLogger());
         if (!rsHook.init()) {
             rsHook = null;
-            getLogger().warning("RealisticSeasons detected, but API hook failed. Seasonal logic disabled.");
-        } else {
-            getLogger().info("RealisticSeasons detected. Seasonal logic enabled.");
-        }
+            getLogger().warning("RealisticSeasons hook failed. Seasonal logic disabled.");
+        } else getLogger().info("RealisticSeasons detected. Seasonal logic enabled.");
     }
 
     @Override public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (!cmd.getName().equalsIgnoreCase("treefall")) return false;
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
-            if (!sender.hasPermission("treefall.admin")) {
-                sender.sendMessage(settings.noPermissionMessage);
-                return true;
-            }
+            if (!sender.hasPermission("treefall.admin")) { sender.sendMessage(settings.noPermissionMessage); return true; }
             settings = new Settings(this);
             sender.sendMessage(settings.reloadMessage);
-            getLogger().info("Configuration reloaded by " + sender.getName() + ".");
             return true;
         }
         sender.sendMessage(settings.usageMessage);
@@ -101,7 +92,6 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onLogBreak(BlockBreakEvent event) {
         if (!settings.enabled) return;
-
         Block cutBlock = event.getBlock();
         if (!Tag.LOGS.isTagged(cutBlock.getType())) return;
 
@@ -116,32 +106,32 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         Long last = cooldowns.get(player.getUniqueId());
         if (last != null && now - last < settings.cooldownMs) return;
         cleanupCooldowns(now);
-
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
-        // IMPORTANT: collect from the block the player actually broke.
-        // Everything below that block remains completely untouched.
+        // The clicked block is the cut point. Build the tree from this block so the part below it
+        // is never included in the falling animation.
         TreeBlocks fullTree = TreeDetector.collectTree(cutBlock, Math.min(5000, Math.max(settings.maxBlocks, 2200)));
-        TreeBlocks falling = sliceAboveY(fullTree, cutBlock.getY());
+        if (fullTree.truncated() || fullTree.logs().isEmpty()) return;
+
+        TreeBlocks falling = sliceAtOrAbove(fullTree, cutBlock.getY());
         if (falling.logs().isEmpty()) return;
 
-        // Do not replace a normal single-log break unless there is a real tree segment above it.
-        int logsAbove = falling.logs().size();
-        if (logsAbove < settings.minTrunkHeight) return;
+        // A tree-fall needs something above the cut. If the player breaks the only log, let
+        // vanilla Minecraft handle that block normally.
+        boolean hasUpperLog = false;
+        for (Block block : falling.logs()) {
+            if (block.getY() > cutBlock.getY()) { hasUpperLog = true; break; }
+        }
+        boolean hasUpperLeaves = false;
+        for (Block block : falling.leaves()) {
+            if (block.getY() >= cutBlock.getY()) { hasUpperLeaves = true; break; }
+        }
+        if (!hasUpperLog && !hasUpperLeaves) return;
 
-        Block trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
-        String treeKey = TreeDetector.getTreeKey(trunkBottom);
+        String treeKey = TreeDetector.getTreeKey(cutBlock);
         if (!activeTrees.add(treeKey)) return;
 
         try {
-            if (fullTree.truncated()) {
-                activeTrees.remove(treeKey);
-                getLogger().warning("TreeFall skipped an oversized or unusually connected tree at "
-                        + cutBlock.getWorld().getName() + " " + cutBlock.getX() + ", "
-                        + cutBlock.getY() + ", " + cutBlock.getZ());
-                return;
-            }
-
             event.setCancelled(true);
             cooldowns.put(player.getUniqueId(), now);
 
@@ -165,17 +155,14 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    void releaseTree(String treeKey) {
-        if (treeKey != null) activeTrees.remove(treeKey);
-    }
+    void releaseTree(String treeKey) { if (treeKey != null) activeTrees.remove(treeKey); }
 
     private void cleanupCooldowns(long now) {
         if (cooldowns.size() < 256) return;
-        cooldowns.entrySet().removeIf(entry ->
-                now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
+        cooldowns.entrySet().removeIf(entry -> now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
     }
 
-    private TreeBlocks sliceAboveY(TreeBlocks tree, int cutY) {
+    private TreeBlocks sliceAtOrAbove(TreeBlocks tree, int cutY) {
         Set<Block> logs = new HashSet<>();
         Set<Block> leaves = new HashSet<>();
         for (Block block : tree.logs()) if (block.getY() >= cutY) logs.add(block);
