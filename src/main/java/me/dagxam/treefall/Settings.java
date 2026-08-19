@@ -54,17 +54,17 @@ public final class Settings {
         damageTool = c.getBoolean("damage-tool", true);
         requireAxeForBig = c.getBoolean("require-axe-for-big", false);
 
-        minTrunkHeight = clampInt(c.getInt("min-trunk-height", 4), 3, 128);
-        maxBlocks = clampInt(c.getInt("max-blocks", 512), 64, 5000);
+        minTrunkHeight = clampInt(c.getInt("min-trunk-height", 2), 2, 128);
+        maxBlocks = clampInt(c.getInt("max-blocks", 2000), 64, 5000);
         cooldownMs = Math.max(0L, c.getLong("cooldown-ms", 500L));
         bypassPermission = c.getString("authorization.bypass-permission", "treefall.bypass");
 
         worldBlacklist = loadWorldBlacklist(c.getStringList("world-blacklist"));
 
-        animBlocksPerTick = clampInt(c.getInt("animation.blocks-per-tick", 18), 1, 100);
+        animBlocksPerTick = clampInt(c.getInt("animation.blocks-per-tick", 32), 1, 200);
         animTickDelay = Math.max(1L, c.getLong("animation.tick-delay", 1L));
-        maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 80), 10, 300);
-        animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 100L), 20L, 600L);
+        maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 2000), 10, 5000);
+        animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 60L), 20L, 600L);
         directionalFall = c.getBoolean("animation.directional-fall", true);
         horizontalVelocity = clampDouble(c.getDouble("animation.horizontal-velocity", 0.12), 0.0, 1.0);
         upwardVelocity = clampDouble(c.getDouble("animation.upward-velocity", 0.02), 0.0, 0.5);
@@ -90,26 +90,13 @@ public final class Settings {
         if (worlds == null || worlds.isEmpty()) return Collections.emptySet();
         Set<String> result = new HashSet<>();
         for (String world : worlds) {
-            if (world != null && !world.isBlank()) {
-                result.add(world.trim().toLowerCase(Locale.ROOT));
-            }
+            if (world != null && !world.isBlank()) result.add(world.trim().toLowerCase(Locale.ROOT));
         }
         return Collections.unmodifiableSet(result);
     }
 
-    private static int clampInt(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static long clampLong(long value, long min, long max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static double clampDouble(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static double clamp01(double value) {
-        return clampDouble(value, 0.0, 1.0);
-    }
+    private static int clampInt(int value, int min, int max) { return Math.max(min, Math.min(max, value)); }
+    private static long clampLong(long value, long min, long max) { return Math.max(min, Math.min(max, value)); }
+    private static double clampDouble(double value, double min, double max) { return Math.max(min, Math.min(max, value)); }
+    private static double clamp01(double value) { return clampDouble(value, 0.0, 1.0); }
 }
