@@ -3,48 +3,44 @@
 
 enabled: true
 
-# Require treefall.use permission
 authorization:
   require-permission: true
   bypass-permission: treefall.bypass
 
-# Sneak (shift) to disable tree-fall and break normally
 sneak-to-disable: true
-
-# Damage the tool according to the number of logs processed
 damage-tool: true
-
-# Require an axe for trees taller than 6 blocks
 require-axe-for-big: false
-
-# Minimum trunk height to trigger tree-fall
 min-trunk-height: 4
-
-# Maximum blocks inspected while detecting a tree
 max-blocks: 512
-
-# Cooldown between tree-fall activations per player (milliseconds)
 cooldown-ms: 500
-
-# Worlds where TreeFall is disabled.
 world-blacklist: []
 
-# Animation settings
 animation:
-  # Maximum FallingBlock entities used for visual animation.
-  # Blocks above this limit are still processed and dropped correctly.
+  # Maximum FallingBlock entities used at once for visual animation.
+  # The complete tree is still processed and its drops are preserved.
   max-falling-blocks: 80
   blocks-per-tick: 18
   tick-delay: 1
   timeout-ticks: 100
 
-# Drop chances per leaf block
+  # Push the tree in the direction the player is looking.
+  # Higher blocks receive more horizontal velocity, creating a unified fall.
+  directional-fall: true
+  horizontal-velocity: 0.12
+  upward-velocity: 0.02
+  random-spread: 0.025
+
+  # Extra visual effects.
+  particles: true
+  particle-interval: 2
+  sounds: true
+  sound-interval: 8
+
 drop:
   chance:
     stick: 0.02
     sapling: 0.05
 
-# Messages
 messages:
   no-permission: "§cУ вас нет прав."
   reload: "§aКонфигурация TreeFall перезагружена."
