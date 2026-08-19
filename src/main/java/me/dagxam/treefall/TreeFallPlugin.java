@@ -21,9 +21,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,7 +34,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     private WorldGuardHook wgHook;
     RealisticSeasonsHook rsHook;
     private final Map<UUID, Long> cooldowns = new HashMap<>();
-    private final Set<String> activeTrees = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<String> activeTrees = ConcurrentHashMap.newKeySet();
 
     @Override public void onEnable() {
         saveDefaultConfig();
@@ -108,16 +106,12 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         cleanupCooldowns(now);
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
-        // The hit block is the cut point. Find the connected tree from that block,
-        // then keep only the section at the same Y or above it. Nothing below the hit is touched.
+        // The exact block the player hit is the cut point. Collect only this block and
+        // connected logs/leaves above it. The stump below is never part of the animation.
         int scanLimit = Math.min(5000, Math.max(2200, settings.maxBlocks));
-        TreeBlocks connected = TreeDetector.collectTree(cutBlock, scanLimit);
-        if (connected.logs().isEmpty() || connected.truncated()) return;
-
-        TreeBlocks falling = sliceAtOrAbove(connected, cutBlock.getY());
+        TreeBlocks falling = TreeDetector.collectUpperTree(cutBlock, scanLimit);
         if (falling.logs().isEmpty()) return;
 
-        // Require a real upper section: either another log above the hit or leaves above/at the hit.
         boolean upperLog = false;
         for (Block block : falling.logs()) {
             if (block.getY() > cutBlock.getY()) {
@@ -166,13 +160,5 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     private void cleanupCooldowns(long now) {
         if (cooldowns.size() < 256) return;
         cooldowns.entrySet().removeIf(entry -> now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
-    }
-
-    private TreeBlocks sliceAtOrAbove(TreeBlocks tree, int cutY) {
-        Set<Block> logs = new HashSet<>();
-        Set<Block> leaves = new HashSet<>();
-        for (Block block : tree.logs()) if (block.getY() >= cutY) logs.add(block);
-        for (Block block : tree.leaves()) if (block.getY() >= cutY) leaves.add(block);
-        return new TreeBlocks(logs, leaves);
     }
 }
