@@ -12,8 +12,10 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 public final class TreeAnimator {
 
@@ -39,7 +41,7 @@ public final class TreeAnimator {
         double spread = falling.leaves().size() >= Settings.BIG_TREE_LEAVES ? 3.5 : 1.8;
         int maxAnimated = Math.min(allBlocks.size(), settings.maxFallingBlocks);
 
-        // Prioritize logs so large trees always show a visible falling trunk.
+        // Prioritize logs so a large tree always has a visible falling trunk.
         List<Block> animated = new ArrayList<>(maxAnimated);
         List<Block> logs = new ArrayList<>(falling.logs());
         List<Block> leaves = new ArrayList<>(falling.leaves());
@@ -55,10 +57,9 @@ public final class TreeAnimator {
             animated.add(block);
         }
 
-        // Every detected block is processed. The entity limit only affects visuals;
-        // blocks outside the animation budget are removed without losing their drops.
+        Set<Block> animatedSet = new HashSet<>(animated);
         for (Block block : allBlocks) {
-            if (!animated.contains(block)) {
+            if (!animatedSet.contains(block)) {
                 block.setType(Material.AIR, false);
             }
         }
@@ -110,15 +111,20 @@ public final class TreeAnimator {
                     }
 
                     if (index >= animated.size() && cleanupAt < 0L) {
-                        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot, falling, spread, random);
-                        rewardsGiven = true;
-                        world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.0f, 0.8f);
+                        if (!rewardsGiven) {
+                            giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
+                                    falling, spread, random);
+                            rewardsGiven = true;
+                            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.0f, 0.8f);
+                        }
                         cleanupAt = ticks + settings.animationTimeoutTicks;
                     }
 
                     if (ticks >= settings.animationTimeoutTicks && !rewardsGiven) {
-                        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot, falling, spread, random);
+                        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
+                                falling, spread, random);
                         rewardsGiven = true;
+                        cleanupAt = ticks + 1L;
                     }
 
                     if (cleanupAt >= 0L && ticks >= cleanupAt) {
@@ -126,14 +132,15 @@ public final class TreeAnimator {
                         plugin.releaseTree(treeKey);
                         cancel();
                     }
-                } catch (Throwable t) {
+                } catch (Throwable throwable) {
                     cleanupEntities();
                     if (!rewardsGiven) {
-                        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot, falling, spread, random);
+                        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
+                                falling, spread, random);
                     }
                     plugin.releaseTree(treeKey);
                     plugin.getLogger().warning("TreeFall animation recovered from an error: "
-                            + t.getClass().getSimpleName() + ": " + t.getMessage());
+                            + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
                     cancel();
                 }
             }
