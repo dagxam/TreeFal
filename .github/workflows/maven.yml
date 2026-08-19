@@ -1,46 +1,106 @@
-name: Build - ${{ github.event.head_commit.message || github.event.pull_request.title || 'TreeFall build' }}
+name: Сборка TreeFall — Java 26
 
 on:
   push:
     branches:
       - "**"
+
   pull_request:
 
 jobs:
   build:
-    name: Build Java 26 - ${{ github.event.head_commit.message || github.event.pull_request.title || 'TreeFall' }}
+    name: Сборка плагина на Java 26
+
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+
+      # ========================================
+      # Получаем исходный код
+      # ========================================
+      - name: Получение исходного кода
         uses: actions/checkout@v4
 
-      - name: Set up Java 26
+
+      # ========================================
+      # Устанавливаем Java 26
+      # ========================================
+      - name: Установка Java 26
         uses: oracle-actions/setup-java@v1
         with:
           website: jdk.java.net
           version: "26"
 
-      - name: Verify Java
+
+      # ========================================
+      # Проверяем Java
+      # ========================================
+      - name: Проверка Java 26
         run: |
+          echo "========================================"
+          echo "Проверка установленной Java"
+          echo "========================================"
           echo "JAVA_HOME=$JAVA_HOME"
+          echo ""
           java -version
+          echo ""
           javac -version
+          echo ""
           which java
           which javac
 
-      - name: Verify Maven compiler
+
+      # ========================================
+      # Проверяем Maven
+      # ========================================
+      - name: Проверка Maven
         run: |
+          echo "========================================"
+          echo "Информация о Maven"
+          echo "========================================"
           mvn -version
 
-      - name: Build with Maven
-        run: |
-          mvn -B -ntp clean package
 
-      - name: Publish JAR
+      # ========================================
+      # Очистка предыдущей сборки
+      # ========================================
+      - name: Очистка проекта
+        run: |
+          echo "========================================"
+          echo "Очистка предыдущей сборки"
+          echo "========================================"
+          mvn -B -ntp clean
+
+
+      # ========================================
+      # Компиляция и создание JAR
+      # ========================================
+      - name: Сборка TreeFall
+        run: |
+          echo "========================================"
+          echo "Компиляция TreeFall"
+          echo "========================================"
+          mvn -B -ntp package
+
+
+      # ========================================
+      # Проверяем созданный JAR
+      # ========================================
+      - name: Проверка JAR
+        run: |
+          echo "========================================"
+          echo "Созданные JAR-файлы"
+          echo "========================================"
+          ls -lah target/*.jar
+
+
+      # ========================================
+      # Загружаем JAR для скачивания
+      # ========================================
+      - name: Загрузка готового JAR
         uses: actions/upload-artifact@v4
         with:
-          name: TreeFall-${{ github.sha }}
+          name: TreeFall-Java26-${{ github.sha }}
           path: target/*.jar
           if-no-files-found: error
           retention-days: 30
