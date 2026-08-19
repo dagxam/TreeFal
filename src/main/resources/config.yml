@@ -4,33 +4,28 @@
 enabled: true
 
 authorization:
-  require-permission: true
+  # TreeFall works for normal players by default.
+  # Set to true if you want to require treefall.use.
+  require-permission: false
   bypass-permission: treefall.bypass
 
 sneak-to-disable: true
 damage-tool: true
 require-axe-for-big: false
-min-trunk-height: 4
+min-trunk-height: 2
 max-blocks: 512
 cooldown-ms: 500
 world-blacklist: []
 
 animation:
-  # Maximum FallingBlock entities used at once for visual animation.
-  # The complete tree is still processed and its drops are preserved.
   max-falling-blocks: 80
   blocks-per-tick: 18
   tick-delay: 1
   timeout-ticks: 100
-
-  # Push the tree in the direction the player is looking.
-  # Higher blocks receive more horizontal velocity, creating a unified fall.
   directional-fall: true
   horizontal-velocity: 0.12
   upward-velocity: 0.02
   random-spread: 0.025
-
-  # Extra visual effects.
   particles: true
   particle-interval: 2
   sounds: true
