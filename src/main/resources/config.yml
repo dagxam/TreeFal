@@ -18,7 +18,8 @@ cooldown-ms: 500
 world-blacklist: []
 
 animation:
-  max-falling-blocks: 300
+  # Animate the complete detected tree. This matches the max-blocks scan limit.
+  max-falling-blocks: 512
   blocks-per-tick: 18
   tick-delay: 1
   timeout-ticks: 100
