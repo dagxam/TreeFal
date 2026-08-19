@@ -152,9 +152,20 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             int firstTryLimit = Math.max(settings.maxBlocks, 700);
             TreeBlocks fullTree = TreeDetector.collectTree(trunkBottom, firstTryLimit);
 
-            if (fullTree.logs().size() + fullTree.leaves().size() >= firstTryLimit - 10
-                    || fullTree.leaves().size() >= Settings.BIG_TREE_LEAVES) {
-                fullTree = TreeDetector.collectTree(trunkBottom, Math.max(firstTryLimit, 2200));
+            if (fullTree.truncated()) {
+                fullTree = TreeDetector.collectTree(trunkBottom, Math.min(2200, Math.max(firstTryLimit, 2200)));
+            }
+            if (fullTree.truncated()) {
+                fullTree = TreeDetector.collectTree(trunkBottom, Math.max(firstTryLimit, 5000));
+            }
+
+            // Never partially destroy a tree because the safety scan limit was reached.
+            if (fullTree.truncated()) {
+                activeTrees.remove(treeKey);
+                getLogger().warning("TreeFall skipped an oversized or unusually connected tree at "
+                        + cutBlock.getWorld().getName() + " " + cutBlock.getX() + ", "
+                        + cutBlock.getY() + ", " + cutBlock.getZ());
+                return;
             }
 
             if (fullTree.logs().isEmpty()) {
@@ -191,9 +202,10 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                     toolSnapshot,
                     treeKey
             );
-        } catch (Throwable t) {
+        } catch (Throwable throwable) {
             activeTrees.remove(treeKey);
-            getLogger().severe("TreeFall failed safely: " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            getLogger().severe("TreeFall failed safely: " + throwable.getClass().getSimpleName()
+                    + ": " + throwable.getMessage());
         }
     }
 
@@ -203,7 +215,8 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
 
     private void cleanupCooldowns(long now) {
         if (cooldowns.size() < 256) return;
-        cooldowns.entrySet().removeIf(entry -> now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
+        cooldowns.entrySet().removeIf(entry ->
+                now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
     }
 
     private TreeBlocks sliceAboveY(TreeBlocks tree, int cutY) {
