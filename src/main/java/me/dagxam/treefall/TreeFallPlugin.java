@@ -101,6 +101,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onLogBreak(BlockBreakEvent event) {
         if (!settings.enabled) return;
+
         Block cutBlock = event.getBlock();
         if (!Tag.LOGS.isTagged(cutBlock.getType())) return;
 
@@ -118,26 +119,21 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
 
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
+        // IMPORTANT: collect from the block the player actually broke.
+        // Everything below that block remains completely untouched.
+        TreeBlocks fullTree = TreeDetector.collectTree(cutBlock, Math.min(5000, Math.max(settings.maxBlocks, 2200)));
+        TreeBlocks falling = sliceAboveY(fullTree, cutBlock.getY());
+        if (falling.logs().isEmpty()) return;
+
+        // Do not replace a normal single-log break unless there is a real tree segment above it.
+        int logsAbove = falling.logs().size();
+        if (logsAbove < settings.minTrunkHeight) return;
+
         Block trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
-        int trunkHeight = TreeDetector.measureTrunkHeight(trunkBottom);
-        if (trunkHeight < settings.minTrunkHeight) return;
-        if (TreeDetector.hasSideLogsAtBase(trunkBottom)) return;
-
-        Block top = trunkBottom.getRelative(0, trunkHeight - 1, 0);
-        if (!TreeDetector.hasCanopyAbove(top)) return;
-
         String treeKey = TreeDetector.getTreeKey(trunkBottom);
         if (!activeTrees.add(treeKey)) return;
 
         try {
-            int firstTryLimit = settings.maxBlocks;
-            TreeBlocks fullTree = TreeDetector.collectTree(trunkBottom, firstTryLimit);
-            if (fullTree.truncated()) {
-                fullTree = TreeDetector.collectTree(trunkBottom, Math.min(5000, Math.max(firstTryLimit, 2200)));
-            }
-            if (fullTree.truncated() && firstTryLimit < 5000) {
-                fullTree = TreeDetector.collectTree(trunkBottom, 5000);
-            }
             if (fullTree.truncated()) {
                 activeTrees.remove(treeKey);
                 getLogger().warning("TreeFall skipped an oversized or unusually connected tree at "
@@ -145,31 +141,21 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                         + cutBlock.getY() + ", " + cutBlock.getZ());
                 return;
             }
-            if (fullTree.logs().isEmpty()) {
-                activeTrees.remove(treeKey);
-                return;
-            }
-
-            TreeBlocks falling = sliceAboveY(fullTree, cutBlock.getY());
-            if (falling.logs().isEmpty()) {
-                activeTrees.remove(treeKey);
-                return;
-            }
 
             event.setCancelled(true);
             cooldowns.put(player.getUniqueId(), now);
+
             World world = cutBlock.getWorld();
             Location center = cutBlock.getLocation();
             String season = rsHook != null ? rsHook.getSeasonName(world) : null;
             TreeDropCalculator.DropResult drops = TreeDropCalculator.calculate(this, falling, season, settings);
             int toolSlot = player.getInventory().getHeldItemSlot();
             ItemStack toolSnapshot = player.getInventory().getItemInMainHand().clone();
+
             Vector fallDirection = player.getLocation().getDirection().setY(0);
-            if (fallDirection.lengthSquared() < 0.001) {
-                fallDirection = new Vector(0, 0, 1);
-            } else {
-                fallDirection.normalize();
-            }
+            if (fallDirection.lengthSquared() < 0.001) fallDirection = new Vector(0, 0, 1);
+            else fallDirection.normalize();
+
             TreeAnimator.play(this, world, center, falling, drops, player, toolSlot,
                     toolSnapshot, treeKey, fallDirection);
         } catch (Throwable throwable) {
