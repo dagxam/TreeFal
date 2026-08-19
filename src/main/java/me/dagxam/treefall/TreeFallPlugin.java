@@ -153,10 +153,10 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             TreeBlocks fullTree = TreeDetector.collectTree(trunkBottom, firstTryLimit);
 
             if (fullTree.truncated()) {
-                fullTree = TreeDetector.collectTree(trunkBottom, Math.min(2200, Math.max(firstTryLimit, 2200)));
+                fullTree = TreeDetector.collectTree(trunkBottom, Math.min(5000, Math.max(firstTryLimit, 2200)));
             }
-            if (fullTree.truncated()) {
-                fullTree = TreeDetector.collectTree(trunkBottom, Math.max(firstTryLimit, 5000));
+            if (fullTree.truncated() && firstTryLimit < 5000) {
+                fullTree = TreeDetector.collectTree(trunkBottom, 5000);
             }
 
             // Never partially destroy a tree because the safety scan limit was reached.
