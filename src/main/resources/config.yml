@@ -1,16 +1,17 @@
-# src/main/resources/config.yml
-
 # TreeFall Configuration
+# All technical commands stay in English; messages are configurable below.
 
 enabled: true
 
 # Require treefall.use permission
-require-permission: true
+authorization:
+  require-permission: true
+  bypass-permission: treefall.bypass
 
 # Sneak (shift) to disable tree-fall and break normally
 sneak-to-disable: true
 
-# Damage the tool for each log broken
+# Damage the tool according to the number of logs processed
 damage-tool: true
 
 # Require an axe for trees taller than 6 blocks
@@ -19,21 +20,33 @@ require-axe-for-big: false
 # Minimum trunk height to trigger tree-fall
 min-trunk-height: 4
 
-# Maximum blocks to scan for a single tree
+# Maximum blocks inspected while detecting a tree
 max-blocks: 512
 
-# Cooldown between tree-fall activations per player (ms)
+# Cooldown between tree-fall activations per player (milliseconds)
 cooldown-ms: 500
+
+# Worlds where TreeFall is disabled.
+world-blacklist: []
 
 # Animation settings
 animation:
+  # Maximum FallingBlock entities used for visual animation.
+  # Blocks above this limit are still processed and dropped correctly.
+  max-falling-blocks: 80
   blocks-per-tick: 18
   tick-delay: 1
-  # Max FallingBlock entities spawned per tree (rest just disappear)
-  max-falling-blocks: 80
+  timeout-ticks: 100
 
 # Drop chances per leaf block
 drop:
   chance:
     stick: 0.02
     sapling: 0.05
+
+# Messages
+messages:
+  no-permission: "§cУ вас нет прав."
+  reload: "§aКонфигурация TreeFall перезагружена."
+  usage: "§eИспользование: /treefall reload"
+  worldguard-error: "§cНе удалось проверить защиту WorldGuard. TreeFall отключён для этой операции."
