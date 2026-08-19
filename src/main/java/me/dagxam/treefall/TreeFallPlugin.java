@@ -149,7 +149,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         if (!activeTrees.add(treeKey)) return;
 
         try {
-            int firstTryLimit = Math.max(settings.maxBlocks, 700);
+            int firstTryLimit = settings.maxBlocks;
             TreeBlocks fullTree = TreeDetector.collectTree(trunkBottom, firstTryLimit);
 
             if (fullTree.truncated()) {
