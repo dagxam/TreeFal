@@ -108,25 +108,31 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         cleanupCooldowns(now);
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
-        // The clicked block is the cut point. Build the tree from this block so the part below it
-        // is never included in the falling animation.
-        TreeBlocks fullTree = TreeDetector.collectTree(cutBlock, Math.min(5000, Math.max(settings.maxBlocks, 2200)));
-        if (fullTree.truncated() || fullTree.logs().isEmpty()) return;
+        // The hit block is the cut point. Find the connected tree from that block,
+        // then keep only the section at the same Y or above it. Nothing below the hit is touched.
+        int scanLimit = Math.min(5000, Math.max(2200, settings.maxBlocks));
+        TreeBlocks connected = TreeDetector.collectTree(cutBlock, scanLimit);
+        if (connected.logs().isEmpty() || connected.truncated()) return;
 
-        TreeBlocks falling = sliceAtOrAbove(fullTree, cutBlock.getY());
+        TreeBlocks falling = sliceAtOrAbove(connected, cutBlock.getY());
         if (falling.logs().isEmpty()) return;
 
-        // A tree-fall needs something above the cut. If the player breaks the only log, let
-        // vanilla Minecraft handle that block normally.
-        boolean hasUpperLog = false;
+        // Require a real upper section: either another log above the hit or leaves above/at the hit.
+        boolean upperLog = false;
         for (Block block : falling.logs()) {
-            if (block.getY() > cutBlock.getY()) { hasUpperLog = true; break; }
+            if (block.getY() > cutBlock.getY()) {
+                upperLog = true;
+                break;
+            }
         }
-        boolean hasUpperLeaves = false;
+        boolean upperLeaves = false;
         for (Block block : falling.leaves()) {
-            if (block.getY() >= cutBlock.getY()) { hasUpperLeaves = true; break; }
+            if (block.getY() >= cutBlock.getY()) {
+                upperLeaves = true;
+                break;
+            }
         }
-        if (!hasUpperLog && !hasUpperLeaves) return;
+        if (!upperLog && !upperLeaves) return;
 
         String treeKey = TreeDetector.getTreeKey(cutBlock);
         if (!activeTrees.add(treeKey)) return;
