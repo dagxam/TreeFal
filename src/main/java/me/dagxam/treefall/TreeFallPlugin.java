@@ -45,7 +45,10 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         getLogger().info("TreeFall 1.5.0 enabled.");
     }
 
-    @Override public void onDisable() { activeTrees.clear(); cooldowns.clear(); }
+    @Override public void onDisable() {
+        activeTrees.clear();
+        cooldowns.clear();
+    }
 
     private void setupWorldGuard() {
         Plugin wg = getServer().getPluginManager().getPlugin("WorldGuard");
@@ -62,16 +65,22 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         rsHook = new RealisticSeasonsHook(rs, getLogger());
         if (!rsHook.init()) {
             rsHook = null;
-            getLogger().warning("RealisticSeasons hook failed. Seasonal logic disabled.");
-        } else getLogger().info("RealisticSeasons detected. Seasonal logic enabled.");
+            getLogger().warning("RealisticSeasons detected, but API hook failed. Seasonal logic disabled.");
+        } else {
+            getLogger().info("RealisticSeasons detected. Seasonal logic enabled.");
+        }
     }
 
     @Override public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (!cmd.getName().equalsIgnoreCase("treefall")) return false;
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
-            if (!sender.hasPermission("treefall.admin")) { sender.sendMessage(settings.noPermissionMessage); return true; }
+            if (!sender.hasPermission("treefall.admin")) {
+                sender.sendMessage(settings.noPermissionMessage);
+                return true;
+            }
             settings = new Settings(this);
             sender.sendMessage(settings.reloadMessage);
+            getLogger().info("Configuration reloaded by " + sender.getName() + ".");
             return true;
         }
         sender.sendMessage(settings.usageMessage);
@@ -106,27 +115,12 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         cleanupCooldowns(now);
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
-        // The exact block the player hit is the cut point. Collect only this block and
-        // connected logs/leaves above it. The stump below is never part of the animation.
+        // Any log in a connected tree is a valid trigger. The complete connected tree falls,
+        // regardless of whether the player breaks the first, second, third, or any higher log.
         int scanLimit = Math.min(5000, Math.max(2200, settings.maxBlocks));
-        TreeBlocks falling = TreeDetector.collectUpperTree(cutBlock, scanLimit);
+        TreeBlocks falling = TreeDetector.collectTree(cutBlock, scanLimit);
         if (falling.logs().isEmpty()) return;
-
-        boolean upperLog = false;
-        for (Block block : falling.logs()) {
-            if (block.getY() > cutBlock.getY()) {
-                upperLog = true;
-                break;
-            }
-        }
-        boolean upperLeaves = false;
-        for (Block block : falling.leaves()) {
-            if (block.getY() >= cutBlock.getY()) {
-                upperLeaves = true;
-                break;
-            }
-        }
-        if (!upperLog && !upperLeaves) return;
+        if (falling.truncated()) return;
 
         String treeKey = TreeDetector.getTreeKey(cutBlock);
         if (!activeTrees.add(treeKey)) return;
@@ -136,7 +130,8 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             cooldowns.put(player.getUniqueId(), now);
 
             World world = cutBlock.getWorld();
-            Location center = cutBlock.getLocation();
+            Block trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
+            Location center = trunkBottom.getLocation();
             String season = rsHook != null ? rsHook.getSeasonName(world) : null;
             TreeDropCalculator.DropResult drops = TreeDropCalculator.calculate(this, falling, season, settings);
             int toolSlot = player.getInventory().getHeldItemSlot();
@@ -155,10 +150,13 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         }
     }
 
-    void releaseTree(String treeKey) { if (treeKey != null) activeTrees.remove(treeKey); }
+    void releaseTree(String treeKey) {
+        if (treeKey != null) activeTrees.remove(treeKey);
+    }
 
     private void cleanupCooldowns(long now) {
         if (cooldowns.size() < 256) return;
-        cooldowns.entrySet().removeIf(entry -> now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
+        cooldowns.entrySet().removeIf(entry ->
+                now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
     }
 }
