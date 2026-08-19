@@ -2,6 +2,7 @@ package me.dagxam.treefall;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -10,6 +11,7 @@ import org.bukkit.entity.FallingBlock;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -29,7 +31,8 @@ public final class TreeAnimator {
                             Player player,
                             int toolSlot,
                             ItemStack toolSnapshot,
-                            String treeKey) {
+                            String treeKey,
+                            Vector fallDirection) {
 
         Settings settings = plugin.settings;
         Random random = plugin.random;
@@ -47,6 +50,8 @@ public final class TreeAnimator {
         logs.sort((a, b) -> Integer.compare(b.getY(), a.getY()));
         leaves.sort((a, b) -> Integer.compare(b.getY(), a.getY()));
 
+        // Prioritize the trunk for the visual animation. Leaves still contribute to drops
+        // even when the entity limit is reached.
         for (Block block : logs) {
             if (animated.size() >= maxAnimated) break;
             animated.add(block);
@@ -63,8 +68,18 @@ public final class TreeAnimator {
             }
         }
 
-        world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.2f, 0.6f);
+        int minY = falling.logs().stream().mapToInt(Block::getY).min().orElse(center.getBlockY());
+        int maxY = falling.logs().stream().mapToInt(Block::getY).max().orElse(minY + 1);
+        int height = Math.max(1, maxY - minY);
+        Vector direction = fallDirection.clone().setY(0);
+        if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
+        direction.normalize();
 
+        if (settings.sounds) {
+            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.15f, 0.55f);
+        }
+
+        final Vector finalDirection = direction;
         new BukkitRunnable() {
             private int index;
             private long ticks;
@@ -97,15 +112,34 @@ public final class TreeAnimator {
                         entity.setHurtEntities(false);
                         entity.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
 
-                        double vx = (random.nextDouble() - 0.5) * 0.08;
-                        double vz = (random.nextDouble() - 0.5) * 0.08;
-                        entity.setVelocity(entity.getVelocity().setX(vx).setZ(vz));
+                        double heightFactor = Math.max(0.25,
+                                Math.min(1.35, 0.30 + ((block.getY() - minY) / (double) height) * 1.05));
+                        double horizontal = settings.directionalFall
+                                ? settings.horizontalVelocity * heightFactor
+                                : 0.0;
+
+                        // The higher part travels farther, giving the tree a coherent fall direction.
+                        Vector velocity = finalDirection.clone().multiply(horizontal);
+                        velocity.setY(settings.upwardVelocity);
+                        velocity.add(new Vector(
+                                (random.nextDouble() - 0.5) * settings.randomSpread,
+                                0,
+                                (random.nextDouble() - 0.5) * settings.randomSpread
+                        ));
+                        entity.setVelocity(velocity);
+
                         entities.add(entity);
                         processed++;
                     }
 
-                    if (random.nextInt(3) == 0 && index < animated.size()) {
-                        world.playSound(center, Sound.BLOCK_WOOD_BREAK, 0.6f, 1.0f);
+                    if (settings.particles && ticks % settings.particleInterval == 0) {
+                        Location effect = center.clone().add(0.5, 0.8, 0.5);
+                        world.spawnParticle(Particle.CLOUD, effect, 3, 0.35, 0.25, 0.35, 0.015);
+                        world.spawnParticle(Particle.CRIT, effect, 2, 0.3, 0.3, 0.3, 0.02);
+                    }
+
+                    if (settings.sounds && ticks % settings.soundInterval == 0 && index < animated.size()) {
+                        world.playSound(center, Sound.BLOCK_WOOD_BREAK, 0.55f, 0.85f + random.nextFloat() * 0.25f);
                     }
 
                     if (index >= animated.size() && cleanupAt < 0L) {
@@ -113,9 +147,13 @@ public final class TreeAnimator {
                             giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
                                     falling, spread, random);
                             rewardsGiven = true;
-                            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.0f, 0.8f);
+                            if (settings.sounds) {
+                                world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
+                                world.spawnParticle(Particle.CLOUD, center.clone().add(0.5, 0.35, 0.5),
+                                        14, 0.7, 0.2, 0.7, 0.035);
+                            }
                         }
-                        cleanupAt = ticks + settings.animationTimeoutTicks;
+                        cleanupAt = ticks + Math.min(20L, settings.animationTimeoutTicks / 4L);
                     }
 
                     if (ticks >= settings.animationTimeoutTicks && !rewardsGiven) {
