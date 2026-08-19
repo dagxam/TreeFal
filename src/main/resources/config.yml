@@ -18,7 +18,7 @@ cooldown-ms: 500
 world-blacklist: []
 
 animation:
-  max-falling-blocks: 80
+  max-falling-blocks: 300
   blocks-per-tick: 18
   tick-delay: 1
   timeout-ticks: 100
