@@ -42,7 +42,6 @@ public final class TreeAnimator {
             return;
         }
 
-        // Keep the complete falling section. The configured limit is a safety limit only.
         int maxAnimated = Math.min(allBlocks.size(), settings.maxFallingBlocks);
         List<Block> animated = new ArrayList<>(maxAnimated);
         List<Block> logs = new ArrayList<>(falling.logs());
@@ -58,8 +57,6 @@ public final class TreeAnimator {
             animated.add(block);
         }
 
-        // Never delete blocks that were found but could not be animated.
-        // They remain in the world and keep the server safe if the safety limit is reached.
         Set<Block> animatedSet = new HashSet<>(animated);
         for (Block block : allBlocks) {
             if (animatedSet.contains(block)) block.setType(Material.AIR, false);
@@ -78,14 +75,23 @@ public final class TreeAnimator {
             private final List<BlockDisplay> displays = new ArrayList<>();
             private final Location pivot = center.clone();
             private final Vector rotationAxis = new Vector(finalDirection.getZ(), 0, -finalDirection.getX()).normalize();
-            private final double maxAngle = Math.toRadians(82.0);
-            private final int duration = Math.max(10, Math.min(60, (int) Math.max(20, settings.animationTimeoutTicks / 2)));
+            private final double maxAngle = Math.toRadians(90.0);
+            private final int duration = Math.max(30, Math.min(70, (int) Math.max(45, settings.animationTimeoutTicks)));
+            private double groundOffset;
+            private boolean groundCalculated;
 
             @Override public void run() {
                 try {
                     if (ticks == 0) spawnDisplays();
+                    if (!groundCalculated) {
+                        groundOffset = calculateGroundOffset();
+                        groundCalculated = true;
+                    }
+
                     ticks++;
 
+                    // Smooth acceleration and deceleration: the tree starts slowly,
+                    // gains speed in the middle, then settles naturally onto the ground.
                     double progress = Math.min(1.0, ticks / (double) duration);
                     double eased = progress * progress * (3.0 - 2.0 * progress);
                     double angle = maxAngle * eased;
@@ -96,7 +102,8 @@ public final class TreeAnimator {
                             (float) rotationAxis.getZ()));
 
                     double horizontal = settings.horizontalVelocity * eased * Math.max(1.0, animated.size() / 32.0);
-                    double vertical = settings.upwardVelocity * (1.0 - eased);
+                    double groundDrop = groundOffset * eased;
+                    double vertical = settings.upwardVelocity * (1.0 - eased) - groundDrop;
 
                     for (int i = 0; i < displays.size(); i++) {
                         Block block = animated.get(i);
@@ -170,6 +177,35 @@ public final class TreeAnimator {
                     display.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
                     displays.add(display);
                 }
+            }
+
+            /**
+             * Finds the lowest position of the final horizontal tree and calculates
+             * the smooth vertical correction needed to place it on the terrain.
+             */
+            private double calculateGroundOffset() {
+                Quaternionf finalRotation = new Quaternionf(new AxisAngle4f(
+                        (float) maxAngle,
+                        (float) rotationAxis.getX(),
+                        (float) rotationAxis.getY(),
+                        (float) rotationAxis.getZ()));
+
+                double requiredOffset = Double.NEGATIVE_INFINITY;
+                for (Block block : animated) {
+                    Vector local = block.getLocation().add(0.5, 0.5, 0.5).toVector().subtract(pivot.toVector());
+                    Vector3f transformed = new Vector3f((float) local.getX(), (float) local.getY(), (float) local.getZ());
+                    finalRotation.transform(transformed);
+
+                    int x = (int) Math.floor(pivot.getX() + transformed.x());
+                    int z = (int) Math.floor(pivot.getZ() + transformed.z());
+                    int highest = world.getHighestBlockYAt(x, z);
+                    double groundCenterY = highest + 0.5;
+                    double needed = groundCenterY - (pivot.getY() + transformed.y());
+                    requiredOffset = Math.max(requiredOffset, needed);
+                }
+
+                if (!Double.isFinite(requiredOffset)) return 0.0;
+                return Math.max(0.0, requiredOffset);
             }
         }.runTaskTimer(plugin, 0L, settings.animTickDelay);
     }
