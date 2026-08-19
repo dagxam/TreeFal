@@ -18,6 +18,7 @@ import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -159,7 +160,6 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                 fullTree = TreeDetector.collectTree(trunkBottom, 5000);
             }
 
-            // Never partially destroy a tree because the safety scan limit was reached.
             if (fullTree.truncated()) {
                 activeTrees.remove(treeKey);
                 getLogger().warning("TreeFall skipped an oversized or unusually connected tree at "
@@ -191,6 +191,13 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             int toolSlot = player.getInventory().getHeldItemSlot();
             ItemStack toolSnapshot = player.getInventory().getItemInMainHand().clone();
 
+            Vector fallDirection = player.getLocation().getDirection().setY(0);
+            if (fallDirection.lengthSquared() < 0.001) {
+                fallDirection = new Vector(0, 0, 1);
+            } else {
+                fallDirection.normalize();
+            }
+
             TreeAnimator.play(
                     this,
                     world,
@@ -200,7 +207,8 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                     player,
                     toolSlot,
                     toolSnapshot,
-                    treeKey
+                    treeKey,
+                    fallDirection
             );
         } catch (Throwable throwable) {
             activeTrees.remove(treeKey);
