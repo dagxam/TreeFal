@@ -12,6 +12,7 @@ import java.util.Locale;
 import java.util.Set;
 
 public final class TreeDetector {
+
     private TreeDetector() {}
 
     public static Block findTrunkBottom(Block start) {
@@ -37,6 +38,7 @@ public final class TreeDetector {
 
     public static boolean hasSideLogsAtBase(Block base) {
         if (is2x2Trunk(base)) return false;
+
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
                 if (dx == 0 && dz == 0) continue;
@@ -49,6 +51,7 @@ public final class TreeDetector {
     public static boolean is2x2Trunk(Block base) {
         Material material = base.getType();
         if (!is2x2Candidate(material)) return false;
+
         int[][] corners = {{0, 0}, {-1, 0}, {0, -1}, {-1, -1}};
         for (int[] corner : corners) {
             boolean match = true;
@@ -74,6 +77,7 @@ public final class TreeDetector {
     public static String getTreeKey(Block base) {
         int x = base.getX();
         int z = base.getZ();
+
         if (is2x2Trunk(base)) {
             for (int dx = -1; dx <= 0; dx++) {
                 for (int dz = -1; dz <= 0; dz++) {
@@ -85,6 +89,7 @@ public final class TreeDetector {
                 }
             }
         }
+
         return base.getWorld().getUID() + ":" + x + ":" + base.getY() + ":" + z;
     }
 
@@ -109,28 +114,32 @@ public final class TreeDetector {
     }
 
     /**
-     * Collects only the connected tree section at the hit Y level and above.
-     * Blocks below the hit are never traversed, so a hit in the middle of a trunk
-     * cannot accidentally include the stump below it.
+     * Finds the complete connected tree around the block that was broken.
+     * The caller decides which Y-level becomes the cut line; this method deliberately
+     * includes the trunk below the hit so the upper section can be sliced afterwards.
      */
-    public static TreeBlocks collectUpperTree(Block start, int limit) {
+    public static TreeBlocks collectTree(Block start, int limit) {
         Set<Block> logs = new HashSet<>();
         Set<Block> leaves = new HashSet<>();
         Set<Block> visited = new HashSet<>();
         ArrayDeque<Block> queue = new ArrayDeque<>();
         queue.add(start);
 
-        final int startX = start.getX();
-        final int startY = start.getY();
-        final int startZ = start.getZ();
+        final int maxHorizDist = 12;
+        final int maxVertDist = 48;
+        int startX = start.getX();
+        int startY = start.getY();
+        int startZ = start.getZ();
 
         while (!queue.isEmpty() && visited.size() < limit) {
             Block block = queue.poll();
             if (!visited.add(block)) continue;
 
-            if (block.getY() < startY) continue;
-            if (Math.abs(block.getX() - startX) > 16 || Math.abs(block.getZ() - startZ) > 16
-                    || block.getY() - startY > 64) continue;
+            if (Math.abs(block.getX() - startX) > maxHorizDist
+                    || Math.abs(block.getZ() - startZ) > maxHorizDist
+                    || Math.abs(block.getY() - startY) > maxVertDist) {
+                continue;
+            }
 
             if (Tag.LOGS.isTagged(block.getType())) {
                 logs.add(block);
@@ -141,7 +150,7 @@ public final class TreeDetector {
             }
 
             for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = 0; dy <= 1; dy++) {
+                for (int dy = -1; dy <= 1; dy++) {
                     for (int dz = -1; dz <= 1; dz++) {
                         if (dx == 0 && dy == 0 && dz == 0) continue;
                         Block next = block.getRelative(dx, dy, dz);
@@ -155,17 +164,19 @@ public final class TreeDetector {
         return new TreeBlocks(logs, leaves, truncated);
     }
 
-    public static TreeBlocks collectTree(Block start, int limit) {
-        return collectUpperTree(start, limit);
-    }
-
     static boolean isLeafLike(Block block) {
         BlockData data = block.getBlockData();
-        if (data instanceof Leaves leaves) return !leaves.isPersistent();
+        if (data instanceof Leaves leaves) {
+            return !leaves.isPersistent();
+        }
+
         Material type = block.getType();
         if (Tag.LEAVES.isTagged(type)) return true;
+
         String name = type.name().toUpperCase(Locale.ROOT);
-        return name.contains("LEAVES") || name.contains("NEEDLES") || name.contains("CANOPY");
+        return name.contains("LEAVES")
+                || name.contains("NEEDLES")
+                || name.contains("CANOPY");
     }
 
     public static Material getAnyLeafMaterial(TreeBlocks tree) {
