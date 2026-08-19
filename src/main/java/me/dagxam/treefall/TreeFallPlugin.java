@@ -113,13 +113,11 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         TreeBlocks fullTree = TreeDetector.collectTree(cutBlock, scanLimit);
         if (fullTree.logs().isEmpty() || fullTree.truncated()) return;
 
-        // The block hit by the player is the cut line. The hit block and everything above it
-        // falls; all logs and leaves below the hit stay in the world.
+        // The block hit by the player is the cut line. Everything at and above it falls;
+        // the connected trunk below the hit is left untouched.
         TreeBlocks falling = sliceAtOrAbove(fullTree, cutBlock.getY());
         if (falling.logs().isEmpty()) return;
-
-        boolean hasPartAbove = falling.logs().size() > 1 || !falling.leaves().isEmpty();
-        if (!hasPartAbove) return;
+        if (falling.logs().size() == 1 && falling.leaves().isEmpty()) return;
 
         String treeKey = TreeDetector.getTreeKey(TreeDetector.findTrunkBottom(cutBlock));
         if (!activeTrees.add(treeKey)) return;
@@ -129,7 +127,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             cooldowns.put(player.getUniqueId(), now);
 
             World world = cutBlock.getWorld();
-            Location center = cutBlock.getLocation();
+            Location center = cutBlock.getLocation().add(0.5, 0.5, 0.5);
             String season = rsHook != null ? rsHook.getSeasonName(world) : null;
             TreeDropCalculator.DropResult drops = TreeDropCalculator.calculate(this, falling, season, settings);
             int toolSlot = player.getInventory().getHeldItemSlot();
