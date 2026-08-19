@@ -7,11 +7,16 @@ import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
-import org.bukkit.entity.FallingBlock;
+import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.EntityType;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
+import org.joml.AxisAngle4f;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,19 +26,11 @@ import java.util.Random;
 import java.util.Set;
 
 public final class TreeAnimator {
-
     private TreeAnimator() {}
 
-    public static void play(TreeFallPlugin plugin,
-                            World world,
-                            Location center,
-                            TreeBlocks falling,
-                            TreeDropCalculator.DropResult drops,
-                            Player player,
-                            int toolSlot,
-                            ItemStack toolSnapshot,
-                            String treeKey,
-                            Vector fallDirection) {
+    public static void play(TreeFallPlugin plugin, World world, Location center, TreeBlocks falling,
+                            TreeDropCalculator.DropResult drops, Player player, int toolSlot,
+                            ItemStack toolSnapshot, String treeKey, Vector fallDirection) {
         Settings settings = plugin.settings;
         Random random = plugin.random;
 
@@ -47,8 +44,6 @@ public final class TreeAnimator {
         List<Block> leaves = new ArrayList<>(falling.leaves());
         logs.sort(Comparator.comparingInt(Block::getY));
         leaves.sort(Comparator.comparingInt(Block::getY));
-
-        // Keep the trunk visually continuous first, then fill the remaining entity budget with leaves.
         for (Block block : logs) {
             if (animated.size() >= maxAnimated) break;
             animated.add(block);
@@ -58,6 +53,7 @@ public final class TreeAnimator {
             animated.add(block);
         }
 
+        // Everything participates in the logical fall, while the visual entity limit protects TPS.
         Set<Block> animatedSet = new HashSet<>(animated);
         for (Block block : allBlocks) {
             if (!animatedSet.contains(block)) block.setType(Material.AIR, false);
@@ -74,116 +70,101 @@ public final class TreeAnimator {
 
         final Vector finalDirection = direction;
         new BukkitRunnable() {
-            private int index;
-            private long ticks;
+            private int ticks;
             private boolean rewardsGiven;
-            private long cleanupAt = -1L;
-            private final List<FallingBlock> entities = new ArrayList<>();
+            private final List<BlockDisplay> displays = new ArrayList<>();
+            private final Location pivot = center.clone().add(0.5, 0.5, 0.5);
+            private final Vector rotationAxis = new Vector(finalDirection.getZ(), 0, -finalDirection.getX()).normalize();
+            private final double maxAngle = Math.toRadians(82.0);
 
-            @Override
-            public void run() {
+            @Override public void run() {
                 try {
                     ticks++;
-                    int processed = 0;
+                    if (ticks == 1) spawnDisplays();
 
-                    while (index < animated.size() && processed < settings.animBlocksPerTick) {
-                        Block block = animated.get(index++);
-                        if (block.getType() == Material.AIR) {
-                            processed++;
-                            continue;
-                        }
+                    double progress = Math.min(1.0, ticks / (double) Math.max(8, Math.min(24, settings.animationTimeoutTicks / 4)));
+                    // Smoothstep makes the trunk accelerate and decelerate like a heavy tree.
+                    double eased = progress * progress * (3.0 - 2.0 * progress);
+                    double angle = maxAngle * eased;
+                    Quaternionf rotation = new Quaternionf(new AxisAngle4f((float) angle,
+                            (float) rotationAxis.getX(), (float) rotationAxis.getY(), (float) rotationAxis.getZ()));
 
-                        BlockData data = block.getBlockData();
-                        Location spawn = block.getLocation().add(0.5, 0.25, 0.5);
-                        block.setType(Material.AIR, false);
+                    Vector3f axisTranslation = new Vector3f((float) (finalDirection.getX() * settings.horizontalVelocity * eased),
+                            (float) (settings.upwardVelocity * (1.0 - eased)),
+                            (float) (finalDirection.getZ() * settings.horizontalVelocity * eased));
 
-                        FallingBlock entity = world.spawnFallingBlock(spawn, data);
-                        entity.setDropItem(false);
-                        entity.setHurtEntities(false);
-                        entity.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
-
-                        double normalizedHeight = Math.max(0.0,\ Math.min(1.0,
-                                (block.getY() - minY) / (double) height));
-                        double horizontal = settings.directionalFall
-                                ? settings.horizontalVelocity * (0.25 + normalizedHeight * 1.10)
-                                : 0.0;
-                        Vector velocity = finalDirection.clone().multiply(horizontal);
-                        // Small lift gives the visual tree a brief weight shift before gravity takes over.
-                        velocity.setY(settings.upwardVelocity + normalizedHeight * settings.upwardVelocity * 0.5);
-                        velocity.add(new Vector(
-                                (random.nextDouble() - 0.5) * settings.randomSpread,
-                                0,
-                                (random.nextDouble() - 0.5) * settings.randomSpread
-                        ));
-                        entity.setVelocity(velocity);
-                        entities.add(entity);
-                        processed++;
+                    for (int i = 0; i < displays.size(); i++) {
+                        Block block = animated.get(i);
+                        Vector local = block.getLocation().add(0.5, 0.5, 0.5).toVector().subtract(pivot.toVector());
+                        Vector3f transformed = new Vector3f((float) local.getX(), (float) local.getY(), (float) local.getZ());
+                        rotation.transform(transformed);
+                        Vector delta = new Vector(transformed.x() - local.getX(), transformed.y() - local.getY(), transformed.z() - local.getZ());
+                        delta.add(axisTranslation.x(), axisTranslation.y(), axisTranslation.z());
+                        applyTransform(displays.get(i), delta, rotation, progress);
                     }
 
                     if (settings.particles && ticks % settings.particleInterval == 0) {
-                        Location effect = center.clone().add(0.5, 0.8, 0.5);
-                        world.spawnParticle(Particle.CLOUD, effect, 3, 0.35, 0.25, 0.35, 0.015);
+                        Location effect = pivot.clone().add(finalDirection.clone().multiply(0.5 + eased * 1.5));
+                        world.spawnParticle(Particle.CLOUD, effect, 4, 0.45, 0.25, 0.45, 0.02);
                         world.spawnParticle(Particle.CRIT, effect, 2, 0.3, 0.3, 0.3, 0.02);
                     }
-
-                    if (settings.sounds && ticks % settings.soundInterval == 0 && index < animated.size()) {
-                        world.playSound(center, Sound.BLOCK_WOOD_BREAK, 0.55f,
-                                0.85f + random.nextFloat() * 0.25f);
+                    if (settings.sounds && ticks % settings.soundInterval == 0) {
+                        world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 0.5f, 0.7f + random.nextFloat() * 0.25f);
                     }
 
-                    if (index >= animated.size() && cleanupAt < 0L) {
+                    if (progress >= 1.0) {
                         if (!rewardsGiven) {
-                            giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
-                                    falling, random);
+                            giveRewards(plugin, world, pivot, drops, player, toolSlot, toolSnapshot, falling, random);
                             rewardsGiven = true;
                             if (settings.sounds) {
-                                world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
-                                world.spawnParticle(Particle.CLOUD, center.clone().add(0.5, 0.35, 0.5),
-                                        14, 0.7, 0.2, 0.7, 0.035);
+                                world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.6f);
+                                world.spawnParticle(Particle.CLOUD, pivot, 18, 0.8, 0.2, 0.8, 0.04);
                             }
                         }
-                        cleanupAt = ticks + Math.min(20L, Math.max(1L, settings.animationTimeoutTicks / 4L));
-                    }
-
-                    if (ticks >= settings.animationTimeoutTicks && !rewardsGiven) {
-                        removeRemainingBlocks(animated, index);
-                        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
-                                falling, random);
-                        rewardsGiven = true;
-                        cleanupAt = ticks + 1L;
-                    }
-
-                    if (cleanupAt >= 0L && ticks >= cleanupAt) {
-                        cleanupEntities();
+                        for (BlockDisplay display : displays) if (display.isValid()) display.remove();
+                        displays.clear();
                         plugin.releaseTree(treeKey);
                         cancel();
                     }
                 } catch (Throwable throwable) {
-                    removeRemainingBlocks(animated, index);
-                    cleanupEntities();
-                    if (!rewardsGiven) {
-                        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
-                                falling, random);
-                    }
+                    for (BlockDisplay display : displays) if (display.isValid()) display.remove();
+                    displays.clear();
+                    if (!rewardsGiven) giveRewards(plugin, world, pivot, drops, player, toolSlot, toolSnapshot, falling, random);
                     plugin.releaseTree(treeKey);
-                    plugin.getLogger().warning("TreeFall animation recovered from an error: "
+                    plugin.getLogger().warning("TreeFall display animation recovered from an error: "
                             + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
                     cancel();
                 }
             }
 
-            private void cleanupEntities() {
-                for (FallingBlock entity : entities) if (entity.isValid()) entity.remove();
-                entities.clear();
+            private void spawnDisplays() {
+                for (Block block : animated) {
+                    BlockData data = block.getBlockData();
+                    Location location = block.getLocation().add(0.5, 0.5, 0.5);
+                    BlockDisplay display = (BlockDisplay) world.spawnEntity(location, EntityType.BLOCK_DISPLAY);
+                    display.setBlock(data);
+                    display.setGravity(false);
+                    display.setInvulnerable(true);
+                    display.setPersistent(false);
+                    display.setInterpolationDuration(Math.max(1, Math.min(4, settings.animTickDelay)));
+                    display.setInterpolationDelay(0);
+                    display.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
+                    displays.add(display);
+                    block.setType(Material.AIR, false);
+                }
+            }
+
+            private void applyTransform(BlockDisplay display, Vector delta, Quaternionf rotation, double progress) {
+                Transformation old = display.getTransformation();
+                Vector3f translation = new Vector3f((float) delta.getX(), (float) delta.getY(), (float) delta.getZ());
+                display.setTransformation(new Transformation(
+                        translation,
+                        rotation,
+                        new Vector3f(1f, 1f, 1f),
+                        new Quaternionf()
+                ));
             }
         }.runTaskTimer(plugin, 0L, settings.animTickDelay);
-    }
-
-    private static void removeRemainingBlocks(List<Block> blocks, int fromIndex) {
-        for (int i = Math.max(0, fromIndex); i < blocks.size(); i++) {
-            Block block = blocks.get(i);
-            if (block.getType() != Material.AIR) block.setType(Material.AIR, false);
-        }
     }
 
     private static void giveRewards(TreeFallPlugin plugin, World world, Location center,
