@@ -44,17 +44,24 @@ public final class TreeAnimator {
 
         int maxAnimated = Math.min(allBlocks.size(), settings.maxFallingBlocks);
         List<Block> animated = new ArrayList<>(maxAnimated);
+        List<BlockData> blockData = new ArrayList<>(maxAnimated);
+
         List<Block> logs = new ArrayList<>(falling.logs());
         List<Block> leaves = new ArrayList<>(falling.leaves());
         logs.sort(Comparator.comparingInt(Block::getY));
         leaves.sort(Comparator.comparingInt(Block::getY));
+
+        // IMPORTANT: snapshot the real block data BEFORE replacing blocks with AIR.
+        // Otherwise Block#getBlockData() returns AIR when the display is spawned.
         for (Block block : logs) {
             if (animated.size() >= maxAnimated) break;
             animated.add(block);
+            blockData.add(block.getBlockData().clone());
         }
         for (Block block : leaves) {
             if (animated.size() >= maxAnimated) break;
             animated.add(block);
+            blockData.add(block.getBlockData().clone());
         }
 
         Set<Block> animatedSet = new HashSet<>(animated);
@@ -76,24 +83,26 @@ public final class TreeAnimator {
             private final Location pivot = center.clone();
             private final Vector rotationAxis = new Vector(finalDirection.getZ(), 0, -finalDirection.getX()).normalize();
             private final double maxAngle = Math.toRadians(90.0);
-            private final int duration = Math.max(30, Math.min(70, (int) Math.max(45, settings.animationTimeoutTicks)));
+            private final int duration = Math.max(36, Math.min(90,
+                    (int) Math.max(55, settings.animationTimeoutTicks)));
             private double groundOffset;
             private boolean groundCalculated;
 
             @Override public void run() {
                 try {
-                    if (ticks == 0) spawnDisplays();
-                    if (!groundCalculated) {
+                    if (ticks == 0) {
+                        spawnDisplays();
                         groundOffset = calculateGroundOffset();
                         groundCalculated = true;
                     }
 
                     ticks++;
 
-                    // Smooth acceleration and deceleration: the tree starts slowly,
-                    // gains speed in the middle, then settles naturally onto the ground.
                     double progress = Math.min(1.0, ticks / (double) duration);
-                    double eased = progress * progress * (3.0 - 2.0 * progress);
+                    // Quintic smoothstep: very soft start and a natural slow-down at the end.
+                    double eased = progress * progress * progress
+                            * (progress * (progress * 6.0 - 15.0) + 10.0);
+
                     double angle = maxAngle * eased;
                     Quaternionf rotation = new Quaternionf(new AxisAngle4f(
                             (float) angle,
@@ -101,14 +110,19 @@ public final class TreeAnimator {
                             (float) rotationAxis.getY(),
                             (float) rotationAxis.getZ()));
 
-                    double horizontal = settings.horizontalVelocity * eased * Math.max(1.0, animated.size() / 32.0);
+                    double horizontal = settings.horizontalVelocity * eased
+                            * Math.max(1.0, animated.size() / 32.0);
                     double groundDrop = groundOffset * eased;
                     double vertical = settings.upwardVelocity * (1.0 - eased) - groundDrop;
 
                     for (int i = 0; i < displays.size(); i++) {
                         Block block = animated.get(i);
-                        Vector local = block.getLocation().add(0.5, 0.5, 0.5).toVector().subtract(pivot.toVector());
-                        Vector3f transformed = new Vector3f((float) local.getX(), (float) local.getY(), (float) local.getZ());
+                        Vector local = block.getLocation().add(0.5, 0.5, 0.5)
+                                .toVector().subtract(pivot.toVector());
+                        Vector3f transformed = new Vector3f(
+                                (float) local.getX(),
+                                (float) local.getY(),
+                                (float) local.getZ());
                         rotation.transform(transformed);
 
                         Location target = pivot.clone().add(
@@ -163,26 +177,23 @@ public final class TreeAnimator {
             }
 
             private void spawnDisplays() {
-                for (Block block : animated) {
-                    BlockData data = block.getBlockData();
+                for (int i = 0; i < animated.size(); i++) {
+                    Block block = animated.get(i);
                     Location location = block.getLocation().add(0.5, 0.5, 0.5);
                     BlockDisplay display = (BlockDisplay) world.spawnEntity(location, EntityType.BLOCK_DISPLAY);
-                    display.setBlock(data);
+                    display.setBlock(blockData.get(i));
                     display.setGravity(false);
                     display.setInvulnerable(true);
                     display.setPersistent(false);
-                    display.setTeleportDuration(1);
-                    display.setInterpolationDuration(1);
+                    // Small interpolation makes the per-tick teleporting visually smooth.
+                    display.setTeleportDuration(2);
+                    display.setInterpolationDuration(2);
                     display.setInterpolationDelay(0);
                     display.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
                     displays.add(display);
                 }
             }
 
-            /**
-             * Finds the lowest position of the final horizontal tree and calculates
-             * the smooth vertical correction needed to place it on the terrain.
-             */
             private double calculateGroundOffset() {
                 Quaternionf finalRotation = new Quaternionf(new AxisAngle4f(
                         (float) maxAngle,
@@ -192,8 +203,12 @@ public final class TreeAnimator {
 
                 double requiredOffset = Double.NEGATIVE_INFINITY;
                 for (Block block : animated) {
-                    Vector local = block.getLocation().add(0.5, 0.5, 0.5).toVector().subtract(pivot.toVector());
-                    Vector3f transformed = new Vector3f((float) local.getX(), (float) local.getY(), (float) local.getZ());
+                    Vector local = block.getLocation().add(0.5, 0.5, 0.5)
+                            .toVector().subtract(pivot.toVector());
+                    Vector3f transformed = new Vector3f(
+                            (float) local.getX(),
+                            (float) local.getY(),
+                            (float) local.getZ());
                     finalRotation.transform(transformed);
 
                     int x = (int) Math.floor(pivot.getX() + transformed.x());
