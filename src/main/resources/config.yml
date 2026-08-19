@@ -4,8 +4,6 @@
 enabled: true
 
 authorization:
-  # TreeFall works for normal players by default.
-  # Set to true if you want to require treefall.use.
   require-permission: false
   bypass-permission: treefall.bypass
 
@@ -13,16 +11,16 @@ sneak-to-disable: true
 damage-tool: true
 require-axe-for-big: false
 min-trunk-height: 2
-max-blocks: 512
+max-blocks: 2000
 cooldown-ms: 500
 world-blacklist: []
 
 animation:
-  # Animate the complete detected tree. This matches the max-blocks scan limit.
-  max-falling-blocks: 512
-  blocks-per-tick: 18
+  # The complete detected falling section is animated up to this safety limit.
+  max-falling-blocks: 2000
+  blocks-per-tick: 32
   tick-delay: 1
-  timeout-ticks: 100
+  timeout-ticks: 60
   directional-fall: true
   horizontal-velocity: 0.12
   upward-velocity: 0.02
