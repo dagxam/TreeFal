@@ -1,5 +1,3 @@
-// src/main/java/me/dagxam/treefall/WorldGuardHook.java
-
 package me.dagxam.treefall;
 
 import org.bukkit.Location;
@@ -7,10 +5,20 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 
+import java.util.logging.Logger;
+
 public final class WorldGuardHook {
 
+    private final Logger logger;
+    private boolean warned;
+
+    public WorldGuardHook(Logger logger) {
+        this.logger = logger;
+    }
+
     /**
-     * Проверяет, может ли игрок строить/ломать в данной локации через WorldGuard API (reflection).
+     * Checks whether the player may build/break at the location through WorldGuard.
+     * On an API failure TreeFall is denied for safety instead of bypassing protection.
      */
     public boolean canBreak(Player player, Block block) {
         try {
@@ -32,13 +40,13 @@ public final class WorldGuardHook {
 
             if (regionManager == null) return true;
 
-            Object bv = adapter.getMethod("asBlockVector", Location.class)
+            Object blockVector = adapter.getMethod("asBlockVector", Location.class)
                     .invoke(null, block.getLocation());
 
             Object regions = regionManager.getClass()
                     .getMethod("getApplicableRegions",
                             Class.forName("com.sk89q.worldedit.math.BlockVector3"))
-                    .invoke(regionManager, bv);
+                    .invoke(regionManager, blockVector);
 
             Class<?> flags = Class.forName("com.sk89q.worldguard.protection.flags.Flags");
             Object build = flags.getField("BUILD").get(null);
@@ -48,9 +56,13 @@ public final class WorldGuardHook {
                             Class.forName("com.sk89q.worldguard.LocalPlayer"),
                             Class.forName("com.sk89q.worldguard.protection.flags.StateFlag"))
                     .invoke(regions, localPlayer, build);
-
-        } catch (Throwable t) {
-            return true;
+        } catch (Throwable throwable) {
+            if (!warned) {
+                warned = true;
+                logger.warning("WorldGuard API check failed. TreeFall will fail closed for protection safety: "
+                        + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+            }
+            return false;
         }
     }
 }
