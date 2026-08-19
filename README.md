@@ -16,10 +16,13 @@ TreeFall is a Paper plugin that makes supported Minecraft trees fall as a visual
 - Support for normal and 2×2 trunks.
 - Shift-click can disable TreeFall for a single action.
 - Optional axe requirement for large trees.
-- Per-player cooldown.
+- Per-player cooldown and active-tree locking to prevent double processing.
 - Protection-aware WorldGuard integration.
 - Optional seasonal drop adjustments through RealisticSeasons.
 - FallingBlock visual animation with a configurable entity limit.
+- Directional falling based on the player's facing direction.
+- Higher parts of the tree receive stronger horizontal movement for a more coherent fall.
+- Configurable particles, sounds, velocity and random spread.
 - The animation limit never discards the detected tree's drops.
 - Oversized or suspiciously connected structures are skipped instead of being partially destroyed.
 - Tool durability respects Unbreaking and is applied only to the original tool slot.
@@ -54,6 +57,14 @@ The generated `config.yml` contains comments and safe defaults. Important settin
 - `animation.blocks-per-tick`
 - `animation.tick-delay`
 - `animation.timeout-ticks`
+- `animation.directional-fall`
+- `animation.horizontal-velocity`
+- `animation.upward-velocity`
+- `animation.random-spread`
+- `animation.particles`
+- `animation.particle-interval`
+- `animation.sounds`
+- `animation.sound-interval`
 - `drop.chance.stick`
 - `drop.chance.sapling`
 
