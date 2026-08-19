@@ -81,7 +81,7 @@ public final class TreeAnimator {
                         Vector local = block.getLocation().add(0.5, 0.5, 0.5).toVector().subtract(pivot.toVector());
                         Vector3f transformed = new Vector3f((float) local.getX(), (float) local.getY(), (float) local.getZ());
                         rotation.transform(transformed);
-                        Vector delta = new Vector(transformed.x() - local.x(), transformed.y() - local.y(), transformed.z() - local.z());
+                        Vector delta = new Vector(transformed.x() - local.getX(), transformed.y() - local.getY(), transformed.z() - local.getZ());
                         delta.add(new Vector(axisTranslation.x(), axisTranslation.y(), axisTranslation.z()));
                         applyTransform(displays.get(i), delta, rotation);
                     }
