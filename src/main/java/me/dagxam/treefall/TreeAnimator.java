@@ -41,7 +41,6 @@ public final class TreeAnimator {
         double spread = falling.leaves().size() >= Settings.BIG_TREE_LEAVES ? 3.5 : 1.8;
         int maxAnimated = Math.min(allBlocks.size(), settings.maxFallingBlocks);
 
-        // Prioritize logs so a large tree always has a visible falling trunk.
         List<Block> animated = new ArrayList<>(maxAnimated);
         List<Block> logs = new ArrayList<>(falling.logs());
         List<Block> leaves = new ArrayList<>(falling.leaves());
@@ -102,7 +101,6 @@ public final class TreeAnimator {
                         double vz = (random.nextDouble() - 0.5) * 0.08;
                         entity.setVelocity(entity.getVelocity().setX(vx).setZ(vz));
                         entities.add(entity);
-
                         processed++;
                     }
 
@@ -121,6 +119,7 @@ public final class TreeAnimator {
                     }
 
                     if (ticks >= settings.animationTimeoutTicks && !rewardsGiven) {
+                        removeRemainingBlocks(animated, index);
                         giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
                                 falling, spread, random);
                         rewardsGiven = true;
@@ -133,6 +132,7 @@ public final class TreeAnimator {
                         cancel();
                     }
                 } catch (Throwable throwable) {
+                    removeRemainingBlocks(animated, index);
                     cleanupEntities();
                     if (!rewardsGiven) {
                         giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot,
@@ -152,6 +152,13 @@ public final class TreeAnimator {
                 entities.clear();
             }
         }.runTaskTimer(plugin, 0L, settings.animTickDelay);
+    }
+
+    private static void removeRemainingBlocks(List<Block> blocks, int fromIndex) {
+        for (int i = Math.max(0, fromIndex); i < blocks.size(); i++) {
+            Block block = blocks.get(i);
+            if (block.getType() != Material.AIR) block.setType(Material.AIR, false);
+        }
     }
 
     private static void giveRewards(TreeFallPlugin plugin,
