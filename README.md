@@ -4,7 +4,7 @@ TreeFall is a Paper plugin that makes supported Minecraft trees fall as a visual
 
 ## Supported platform
 
-- Paper 1.21.x
+- Paper 1.21.1+
 - Java 21+
 - Built against Paper API 1.21.1
 - Optional WorldGuard integration
@@ -33,7 +33,7 @@ Reloads `config.yml`.
 
 ## Permissions
 
-- `treefall.use` — allows TreeFall usage. Default: true.
+- `treefall.use` — allows using TreeFall. Default: true.
 - `treefall.bypass` — bypasses the TreeFall mechanic. Default: op.
 - `treefall.admin` — allows `/treefall reload`. Default: op.
 
@@ -41,6 +41,9 @@ Reloads `config.yml`.
 
 The generated `config.yml` contains comments and safe defaults. Important settings include:
 
+- `enabled`
+- `authorization.require-permission`
+- `authorization.bypass-permission`
 - `sneak-to-disable`
 - `require-axe-for-big`
 - `min-trunk-height`
@@ -54,9 +57,13 @@ The generated `config.yml` contains comments and safe defaults. Important settin
 - `drop.chance.stick`
 - `drop.chance.sapling`
 
+Existing configurations using the old root-level `require-permission` setting remain compatible.
+
 ## Safety behavior
 
 TreeFall does not intentionally partially destroy a tree when its detection limit is reached. The detector retries with larger limits and skips the structure if it still cannot safely determine the complete connected tree.
+
+The animation entity limit affects only visual FallingBlock entities. All detected blocks still contribute to the calculated drops, and non-animated blocks are safely removed as part of the same tree-fall operation.
 
 WorldGuard failures fail closed: if the WorldGuard API cannot be checked, TreeFall does not run for that block instead of bypassing protection.
 
