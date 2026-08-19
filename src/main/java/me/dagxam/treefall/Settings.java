@@ -27,6 +27,14 @@ public final class Settings {
     final long animTickDelay;
     final int maxFallingBlocks;
     final long animationTimeoutTicks;
+    final boolean directionalFall;
+    final double horizontalVelocity;
+    final double upwardVelocity;
+    final double randomSpread;
+    final boolean particles;
+    final int particleInterval;
+    final boolean sounds;
+    final int soundInterval;
 
     final double stickChance;
     final double saplingChance;
@@ -57,6 +65,14 @@ public final class Settings {
         animTickDelay = Math.max(1L, c.getLong("animation.tick-delay", 1L));
         maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 80), 10, 300);
         animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 100L), 20L, 600L);
+        directionalFall = c.getBoolean("animation.directional-fall", true);
+        horizontalVelocity = clampDouble(c.getDouble("animation.horizontal-velocity", 0.12), 0.0, 1.0);
+        upwardVelocity = clampDouble(c.getDouble("animation.upward-velocity", 0.02), 0.0, 0.5);
+        randomSpread = clampDouble(c.getDouble("animation.random-spread", 0.025), 0.0, 0.25);
+        particles = c.getBoolean("animation.particles", true);
+        particleInterval = clampInt(c.getInt("animation.particle-interval", 2), 1, 20);
+        sounds = c.getBoolean("animation.sounds", true);
+        soundInterval = clampInt(c.getInt("animation.sound-interval", 8), 1, 40);
 
         stickChance = clamp01(c.getDouble("drop.chance.stick", 0.02));
         saplingChance = clamp01(c.getDouble("drop.chance.sapling", 0.05));
@@ -89,7 +105,11 @@ public final class Settings {
         return Math.max(min, Math.min(max, value));
     }
 
+    private static double clampDouble(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private static double clamp01(double value) {
-        return Math.max(0.0, Math.min(1.0, value));
+        return clampDouble(value, 0.0, 1.0);
     }
 }
