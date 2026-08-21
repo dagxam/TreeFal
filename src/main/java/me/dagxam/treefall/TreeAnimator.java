@@ -67,9 +67,10 @@ public final class TreeAnimator {
         Set<Block> animatedSet = new HashSet<>(animated);
         for (Block block : allBlocks) if (animatedSet.contains(block)) block.setType(Material.AIR, false);
 
-        Vector direction = fallDirection == null ? new Vector(0, 0, 1) : fallDirection.clone().setY(0);
-        if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
-        direction.normalize();
+        Vector resolvedDirection = fallDirection == null ? new Vector(0, 0, 1) : fallDirection.clone().setY(0);
+        if (resolvedDirection.lengthSquared() < 0.001) resolvedDirection = new Vector(0, 0, 1);
+        resolvedDirection.normalize();
+        final Vector direction = resolvedDirection.clone();
 
         if (settings.sounds) world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.15f, 0.55f);
 
