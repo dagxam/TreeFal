@@ -1,7 +1,7 @@
 name: TreeFall
 version: '1.5.0'
 main: me.dagxam.treefall.TreeFallPlugin
-api-version: '1.21.1'
+api-version: '26.2'
 description: Realistic tree felling with safe falling animation
 author: dagxam
 softdepend: [WorldGuard, RealisticSeasons]
@@ -18,7 +18,7 @@ permissions:
     default: true
   treefall.bypass:
     description: Bypasses the TreeFall mechanic
-    default: op
+    default: false
   treefall.admin:
     description: Allows reloading TreeFall configuration
     default: op

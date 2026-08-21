@@ -74,10 +74,6 @@ public final class TreeDetector {
                 || material == Material.JUNGLE_LOG;
     }
 
-    /**
-     * Produces a stable identity for the tree. For 2x2 trunks it uses the minimum X/Z corner,
-     * preventing two simultaneous clicks on different trunk columns from starting two animations.
-     */
     public static String getTreeKey(Block base) {
         int x = base.getX();
         int z = base.getZ();
@@ -117,6 +113,11 @@ public final class TreeDetector {
         return false;
     }
 
+    /**
+     * Finds the complete connected tree around the block that was broken.
+     * The caller decides which Y-level becomes the cut line; this method deliberately
+     * includes the trunk below the hit so the upper section can be sliced afterwards.
+     */
     public static TreeBlocks collectTree(Block start, int limit) {
         Set<Block> logs = new HashSet<>();
         Set<Block> leaves = new HashSet<>();

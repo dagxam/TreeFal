@@ -39,7 +39,7 @@ public final class TreeDropCalculator {
         boolean winter = season != null && season.equals("WINTER");
 
         if (season != null && (season.equals("AUTUMN") || season.equals("FALL"))) {
-            leafDropTarget = Math.min(leafDropTarget + 6, 26);
+            leafDropTarget = Math.min(leafDropTarget + 6, 32);
         }
         if (winter) {
             leafDropTarget = Math.max(0, leafDropTarget - 8);
@@ -58,21 +58,25 @@ public final class TreeDropCalculator {
             logDrops.merge(block.getType(), 1, Integer::sum);
         }
 
-        int sticks = calculateAggregatedAmount(random, leafCount, settings.stickChance, 1, 3);
+        // Bigger canopies naturally produce more sticks. This is an aggregate chance,
+        // so a small tree gives roughly 1-2 sticks while a large tree can give several.
+        int sticks = calculateSizeBasedAmount(random, leafCount, settings.stickChance, 1, 8, 30);
 
         int saplings = 0;
         if (saplingType != null) {
-            saplings = calculateAggregatedAmount(random, leafCount, settings.saplingChance, 1, 3);
+            saplings = calculateSizeBasedAmount(random, leafCount, settings.saplingChance, 1, 4, 45);
             if (season != null && season.equals("SPRING") && saplings > 0) {
-                saplings = Math.min(3, saplings + 1);
+                saplings = Math.min(4, saplings + 1);
             }
         }
 
+        // Fruit is only generated for trees that have fruit in vanilla Minecraft.
+        // The amount scales with the amount of leaves rather than being a fixed number.
         int apples = 0;
         if (appleTree && !winter) {
-            apples = bigPart ? 5 : 3;
-            if (season != null && season.equals("SUMMER")) {
-                apples = Math.min(6, apples + 1);
+            apples = calculateSizeBasedAmount(random, leafCount, 0.015, 1, 8, 35);
+            if (season != null && season.equals("SUMMER") && apples > 0) {
+                apples = Math.min(8, apples + 1);
             }
         }
 
@@ -83,9 +87,9 @@ public final class TreeDropCalculator {
         if (leafCount <= 0) return 0;
 
         int min = 10;
-        int max = 20;
+        int max = 24;
         int low = 40;
-        int high = 160;
+        int high = 220;
 
         if (leafCount <= low) return Math.min(min, leafCount);
         if (leafCount >= high) return Math.min(max, leafCount);
@@ -96,16 +100,21 @@ public final class TreeDropCalculator {
         return Math.min(target, leafCount);
     }
 
-    private static int calculateAggregatedAmount(Random random,
-                                                 int leafCount,
-                                                 double chancePerLeaf,
-                                                 int min,
-                                                 int max) {
-        if (leafCount <= 0 || chancePerLeaf <= 0) return 0;
+    private static int calculateSizeBasedAmount(Random random,
+                                                int leafCount,
+                                                double chancePerLeaf,
+                                                int min,
+                                                int max,
+                                                int minimumLeavesForDrop) {
+        if (leafCount < minimumLeavesForDrop || chancePerLeaf <= 0) return 0;
 
         double expected = leafCount * chancePerLeaf;
         int base = (int) Math.floor(expected);
         if (random.nextDouble() < expected - base) base++;
-        return Math.max(min, Math.min(max, base));
+
+        // A real tree with enough leaves should normally produce at least one item,
+        // while the upper bound prevents giant trees from flooding the server.
+        base = Math.max(min, base);
+        return Math.min(max, base);
     }
 }
