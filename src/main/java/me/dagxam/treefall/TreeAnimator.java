@@ -1,5 +1,6 @@
 package me.dagxam.treefall;
 
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
@@ -51,8 +53,6 @@ public final class TreeAnimator {
         logs.sort(Comparator.comparingInt(Block::getY));
         leaves.sort(Comparator.comparingInt(Block::getY));
 
-        // IMPORTANT: snapshot the real block data BEFORE replacing blocks with AIR.
-        // Otherwise Block#getBlockData() returns AIR when the display is spawned.
         for (Block block : logs) {
             if (animated.size() >= maxAnimated) break;
             animated.add(block);
@@ -65,44 +65,36 @@ public final class TreeAnimator {
         }
 
         Set<Block> animatedSet = new HashSet<>(animated);
-        for (Block block : allBlocks) {
-            if (animatedSet.contains(block)) block.setType(Material.AIR, false);
-        }
+        for (Block block : allBlocks) if (animatedSet.contains(block)) block.setType(Material.AIR, false);
 
         Vector direction = fallDirection == null ? new Vector(0, 0, 1) : fallDirection.clone().setY(0);
         if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
         direction.normalize();
-        final Vector finalDirection = direction;
 
         if (settings.sounds) world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.15f, 0.55f);
 
         new BukkitRunnable() {
             private int ticks;
             private boolean rewardsGiven;
-            private final List<BlockDisplay> displays = new ArrayList<>();
+            private final List<BlockDisplay> displays = new ArrayList<>(animated.size());
             private final Location pivot = center.clone();
-            private final Vector rotationAxis = new Vector(finalDirection.getZ(), 0, -finalDirection.getX()).normalize();
+            private final Vector rotationAxis = new Vector(direction.getZ(), 0, -direction.getX()).normalize();
             private final double maxAngle = Math.toRadians(90.0);
-            private final int duration = Math.max(36, Math.min(90,
-                    (int) Math.max(55, settings.animationTimeoutTicks)));
+            private final int duration = Math.max(36, Math.min(90, (int) Math.max(55, settings.animationTimeoutTicks)));
+            private final Vector[] localPositions = precomputeLocalPositions();
+            private final double dropRadius = calculateDropRadius();
             private double groundOffset;
-            private boolean groundCalculated;
 
             @Override public void run() {
                 try {
                     if (ticks == 0) {
                         spawnDisplays();
                         groundOffset = calculateGroundOffset();
-                        groundCalculated = true;
                     }
 
                     ticks++;
-
                     double progress = Math.min(1.0, ticks / (double) duration);
-                    // Quintic smoothstep: very soft start and a natural slow-down at the end.
-                    double eased = progress * progress * progress
-                            * (progress * (progress * 6.0 - 15.0) + 10.0);
-
+                    double eased = progress * progress * progress * (progress * (progress * 6.0 - 15.0) + 10.0);
                     double angle = maxAngle * eased;
                     Quaternionf rotation = new Quaternionf(new AxisAngle4f(
                             (float) angle,
@@ -110,82 +102,77 @@ public final class TreeAnimator {
                             (float) rotationAxis.getY(),
                             (float) rotationAxis.getZ()));
 
-                    double horizontal = settings.horizontalVelocity * eased
-                            * Math.max(1.0, animated.size() / 32.0);
-                    double groundDrop = groundOffset * eased;
-                    double vertical = settings.upwardVelocity * (1.0 - eased) - groundDrop;
-
-                    for (int i = 0; i < displays.size(); i++) {
-                        Block block = animated.get(i);
-                        Vector local = block.getLocation().add(0.5, 0.5, 0.5)
-                                .toVector().subtract(pivot.toVector());
-                        Vector3f transformed = new Vector3f(
-                                (float) local.getX(),
-                                (float) local.getY(),
-                                (float) local.getZ());
-                        rotation.transform(transformed);
-
-                        Location target = pivot.clone().add(
-                                transformed.x() + finalDirection.getX() * horizontal,
-                                transformed.y() + vertical,
-                                transformed.z() + finalDirection.getZ() * horizontal);
-
-                        BlockDisplay display = displays.get(i);
-                        display.teleport(target);
-                        display.setTransformation(new Transformation(
-                                new Vector3f(0f, 0f, 0f),
-                                rotation,
-                                new Vector3f(1f, 1f, 1f),
-                                new Quaternionf()));
-                    }
+                    double horizontal = settings.horizontalVelocity * eased * Math.max(1.0, animated.size() / 32.0);
+                    double vertical = settings.upwardVelocity * (1.0 - eased) - groundOffset * eased;
+                    updateDisplays(rotation, horizontal, vertical);
 
                     if (settings.particles && ticks % settings.particleInterval == 0) {
-                        Location effect = pivot.clone().add(finalDirection.clone().multiply(0.5 + eased * 2.0));
+                        Location effect = pivot.clone().add(direction.clone().multiply(0.5 + eased * 2.0));
                         world.spawnParticle(Particle.CLOUD, effect, 4, 0.45, 0.25, 0.45, 0.02);
                         world.spawnParticle(Particle.CRIT, effect, 2, 0.3, 0.3, 0.3, 0.02);
                     }
                     if (settings.sounds && ticks % settings.soundInterval == 0) {
-                        world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 0.5f,
-                                0.7f + random.nextFloat() * 0.25f);
+                        world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 0.5f, 0.7f + random.nextFloat() * 0.25f);
                     }
 
-                    if (progress >= 1.0) {
-                        if (!rewardsGiven) {
-                            giveRewards(plugin, world, pivot, drops, player, toolSlot, toolSnapshot, falling, random);
-                            rewardsGiven = true;
-                        }
-                        if (settings.sounds) {
-                            world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.6f);
-                            world.spawnParticle(Particle.CLOUD, pivot, 18, 0.8, 0.2, 0.8, 0.04);
-                        }
-                        for (BlockDisplay display : displays) if (display.isValid()) display.remove();
-                        displays.clear();
-                        plugin.releaseTree(treeKey);
-                        cancel();
-                    }
+                    if (progress >= 1.0) finish();
                 } catch (Throwable throwable) {
-                    for (BlockDisplay display : displays) if (display.isValid()) display.remove();
-                    displays.clear();
+                    cleanupDisplays();
                     if (!rewardsGiven) {
-                        giveRewards(plugin, world, pivot, drops, player, toolSlot, toolSnapshot, falling, random);
+                        giveRewards(plugin, world, pivot, drops, player, toolSlot, toolSnapshot, falling, random, dropRadius);
+                        rewardsGiven = true;
                     }
                     plugin.releaseTree(treeKey);
-                    plugin.getLogger().warning("TreeFall animation recovered: "
-                            + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+                    plugin.getLogger().warning("TreeFall animation recovered: " + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
                     cancel();
                 }
             }
 
+            private Vector[] precomputeLocalPositions() {
+                Vector[] result = new Vector[animated.size()];
+                Vector pivotVector = pivot.toVector();
+                for (int i = 0; i < animated.size(); i++) {
+                    result[i] = animated.get(i).getLocation().add(0.5, 0.5, 0.5).toVector().subtract(pivotVector);
+                }
+                return result;
+            }
+
+            private void updateDisplays(Quaternionf rotation, double horizontal, double vertical) {
+                float dx = (float) (direction.getX() * horizontal);
+                float dz = (float) (direction.getZ() * horizontal);
+                for (int i = 0; i < displays.size(); i++) {
+                    Vector local = localPositions[i];
+                    Vector3f transformed = new Vector3f((float) local.getX(), (float) local.getY(), (float) local.getZ());
+                    rotation.transform(transformed);
+                    BlockDisplay display = displays.get(i);
+                    display.teleport(pivot.clone().add(transformed.x() + dx, transformed.y() + vertical, transformed.z() + dz));
+                    display.setTransformation(new Transformation(
+                            new Vector3f(), new Quaternionf(rotation), new Vector3f(1f, 1f, 1f), new Quaternionf()));
+                }
+            }
+
+            private void finish() {
+                if (!rewardsGiven) {
+                    giveRewards(plugin, world, pivot, drops, player, toolSlot, toolSnapshot, falling, random, dropRadius);
+                    rewardsGiven = true;
+                }
+                if (settings.sounds) {
+                    world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.6f);
+                    world.spawnParticle(Particle.CLOUD, pivot, 18, 0.8, 0.2, 0.8, 0.04);
+                }
+                cleanupDisplays();
+                plugin.releaseTree(treeKey);
+                cancel();
+            }
+
             private void spawnDisplays() {
                 for (int i = 0; i < animated.size(); i++) {
-                    Block block = animated.get(i);
-                    Location location = block.getLocation().add(0.5, 0.5, 0.5);
+                    Location location = animated.get(i).getLocation().add(0.5, 0.5, 0.5);
                     BlockDisplay display = (BlockDisplay) world.spawnEntity(location, EntityType.BLOCK_DISPLAY);
                     display.setBlock(blockData.get(i));
                     display.setGravity(false);
                     display.setInvulnerable(true);
                     display.setPersistent(false);
-                    // Small interpolation makes the per-tick teleporting visually smooth.
                     display.setTeleportDuration(2);
                     display.setInterpolationDuration(2);
                     display.setInterpolationDelay(0);
@@ -194,33 +181,43 @@ public final class TreeAnimator {
                 }
             }
 
+            private void cleanupDisplays() {
+                for (BlockDisplay display : displays) if (display.isValid()) display.remove();
+                displays.clear();
+            }
+
             private double calculateGroundOffset() {
                 Quaternionf finalRotation = new Quaternionf(new AxisAngle4f(
                         (float) maxAngle,
                         (float) rotationAxis.getX(),
                         (float) rotationAxis.getY(),
                         (float) rotationAxis.getZ()));
-
                 double requiredOffset = Double.NEGATIVE_INFINITY;
-                for (Block block : animated) {
-                    Vector local = block.getLocation().add(0.5, 0.5, 0.5)
-                            .toVector().subtract(pivot.toVector());
-                    Vector3f transformed = new Vector3f(
-                            (float) local.getX(),
-                            (float) local.getY(),
-                            (float) local.getZ());
+                for (Vector local : localPositions) {
+                    Vector3f transformed = new Vector3f((float) local.getX(), (float) local.getY(), (float) local.getZ());
                     finalRotation.transform(transformed);
-
                     int x = (int) Math.floor(pivot.getX() + transformed.x());
                     int z = (int) Math.floor(pivot.getZ() + transformed.z());
                     int highest = world.getHighestBlockYAt(x, z);
-                    double groundCenterY = highest + 0.5;
-                    double needed = groundCenterY - (pivot.getY() + transformed.y());
+                    double needed = highest + 0.5 - (pivot.getY() + transformed.y());
                     requiredOffset = Math.max(requiredOffset, needed);
                 }
+                return Double.isFinite(requiredOffset) ? Math.max(0.0, requiredOffset) : 0.0;
+            }
 
-                if (!Double.isFinite(requiredOffset)) return 0.0;
-                return Math.max(0.0, requiredOffset);
+            private double calculateDropRadius() {
+                if (animated.isEmpty()) return 2.0;
+                int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
+                int minZ = Integer.MAX_VALUE, maxZ = Integer.MIN_VALUE;
+                int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+                for (Block block : animated) {
+                    minX = Math.min(minX, block.getX()); maxX = Math.max(maxX, block.getX());
+                    minY = Math.min(minY, block.getY()); maxY = Math.max(maxY, block.getY());
+                    minZ = Math.min(minZ, block.getZ()); maxZ = Math.max(maxZ, block.getZ());
+                }
+                double horizontalSize = Math.max(maxX - minX + 1, maxZ - minZ + 1);
+                double height = maxY - minY + 1;
+                return Math.max(2.0, Math.min(14.0, 1.5 + horizontalSize * 0.55 + height * 0.18));
             }
         }.runTaskTimer(plugin, 0L, settings.animTickDelay);
     }
@@ -228,32 +225,42 @@ public final class TreeAnimator {
     private static void giveRewards(TreeFallPlugin plugin, World world, Location center,
                                     TreeDropCalculator.DropResult drops, Player player,
                                     int toolSlot, ItemStack toolSnapshot, TreeBlocks falling,
-                                    Random random) {
-        dropScattered(world, center, drops.leafDrops(), random, 3.5);
-        dropScattered(world, center, drops.logDrops(), random, 3.5);
-        if (drops.sticks() > 0) scatterItem(world, center, new ItemStack(Material.STICK, drops.sticks()), 3.5, random);
+                                    Random random, double radius) {
+        dropScattered(world, center, drops.leafDrops(), random, radius);
+        dropScattered(world, center, drops.logDrops(), random, radius);
+        if (drops.sticks() > 0) scatterStack(world, center, Material.STICK, drops.sticks(), radius, random);
         if (drops.saplingType() != null && drops.saplings() > 0)
-            scatterItem(world, center, new ItemStack(drops.saplingType(), drops.saplings()), 3.5, random);
-        if (drops.apples() > 0) scatterItem(world, center, new ItemStack(Material.APPLE, drops.apples()), 3.5, random);
-        if (plugin.settings.damageTool)
+            scatterStack(world, center, drops.saplingType(), drops.saplings(), radius, random);
+        if (drops.apples() > 0) scatterStack(world, center, Material.APPLE, drops.apples(), radius, random);
+        if (plugin.settings.damageTool && player.getGameMode() != GameMode.CREATIVE)
             ToolDamageHandler.damageTool(player, toolSlot, toolSnapshot, falling.logs().size(), random);
     }
 
-    private static void dropScattered(World world, Location center, java.util.Map<Material, Integer> items,
+    private static void dropScattered(World world, Location center, Map<Material, Integer> items,
                                       Random random, double radius) {
-        for (var entry : items.entrySet()) {
-            int left = entry.getValue();
-            while (left > 0) {
-                int amount = Math.min(64, left);
-                scatterItem(world, center, new ItemStack(entry.getKey(), amount), radius, random);
-                left -= amount;
-            }
+        for (Map.Entry<Material, Integer> entry : items.entrySet()) {
+            scatterStack(world, center, entry.getKey(), entry.getValue(), radius, random);
+        }
+    }
+
+    private static void scatterStack(World world, Location center, Material material, int total,
+                                     double radius, Random random) {
+        int left = total;
+        while (left > 0) {
+            int chunk = Math.min(left, 1 + random.nextInt(Math.min(8, left)));
+            scatterItem(world, center, new ItemStack(material, chunk), radius, random);
+            left -= chunk;
         }
     }
 
     private static void scatterItem(World world, Location center, ItemStack item, double radius, Random random) {
-        double dx = (random.nextDouble() - 0.5) * radius;
-        double dz = (random.nextDouble() - 0.5) * radius;
-        world.dropItemNaturally(center.clone().add(dx, 0.2, dz), item);
+        double angle = random.nextDouble() * Math.PI * 2.0;
+        double distance = Math.sqrt(random.nextDouble()) * radius;
+        double dx = Math.cos(angle) * distance;
+        double dz = Math.sin(angle) * distance;
+        Location location = center.clone().add(dx, 0.35, dz);
+        var dropped = world.dropItemNaturally(location, item);
+        dropped.setVelocity(new Vector((random.nextDouble() - 0.5) * 0.12, 0.10 + random.nextDouble() * 0.08,
+                (random.nextDouble() - 0.5) * 0.12));
     }
 }
