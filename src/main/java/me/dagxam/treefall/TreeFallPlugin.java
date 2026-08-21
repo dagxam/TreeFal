@@ -97,7 +97,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         if (!Tag.LOGS.isTagged(cutBlock.getType())) return;
 
         Player player = event.getPlayer();
-        if (player.getGameMode() == GameMode.CREATIVE) return;
+        // Creative mode intentionally uses the same TreeFall animation and drop logic as survival.
         if (settings.isWorldBlacklisted(cutBlock.getWorld().getName())) return;
         if (settings.sneakToDisable && player.isSneaking()) return;
         if (player.hasPermission(settings.bypassPermission)) return;
@@ -113,8 +113,6 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         TreeBlocks fullTree = TreeDetector.collectTree(cutBlock, scanLimit);
         if (fullTree.logs().isEmpty() || fullTree.truncated()) return;
 
-        // The block hit by the player is the cut line. Everything at and above it falls;
-        // the connected trunk below the hit is left untouched.
         TreeBlocks falling = sliceAtOrAbove(fullTree, cutBlock.getY());
         if (falling.logs().isEmpty()) return;
         if (falling.logs().size() == 1 && falling.leaves().isEmpty()) return;
