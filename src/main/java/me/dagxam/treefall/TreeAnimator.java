@@ -53,6 +53,8 @@ public final class TreeAnimator {
         logs.sort((a, b) -> Integer.compare(b.getY(), a.getY()));
         leaves.sort((a, b) -> Integer.compare(b.getY(), a.getY()));
 
+        // Always prioritize logs so the trunk is visibly falling even when the
+        // entity budget is reached on a large canopy.
         for (Block block : logs) {
             if (animated.size() >= maxAnimated) break;
             animated.add(block);
@@ -74,10 +76,6 @@ public final class TreeAnimator {
         if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
         direction.normalize();
 
-        // Rewards are committed before the visual task starts. The animation is cosmetic and
-        // therefore cannot delay or duplicate drops if the task is interrupted or chunks unload.
-        giveRewards(plugin, world, center, drops, player, toolSlot, toolSnapshot, falling, spread, random);
-
         if (settings.sounds) world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.15f, 0.55f);
 
         final Vector finalDirection = direction;
@@ -85,6 +83,8 @@ public final class TreeAnimator {
             private int index;
             private long ticks;
             private long cleanupAt = -1L;
+            private boolean landed;
+            private boolean rewardsGiven;
             private final List<FallingBlock> entities = new ArrayList<>();
 
             @Override
@@ -117,7 +117,9 @@ public final class TreeAnimator {
                                 ? settings.horizontalVelocity * heightFactor : 0.0;
 
                         Vector velocity = finalDirection.clone().multiply(horizontal);
-                        velocity.setY(settings.upwardVelocity);
+                        // Give the tree an actual downward start while retaining
+                        // the configurable upward component for the visual arc.
+                        velocity.setY(Math.min(settings.upwardVelocity, 0.02));
                         velocity.add(new Vector(
                                 (random.nextDouble() - 0.5) * settings.randomSpread,
                                 0,
@@ -126,6 +128,29 @@ public final class TreeAnimator {
 
                         entities.add(entity);
                         processed++;
+                    }
+
+                    // EntityChangeBlockEvent is cancelled by TreeFallPlugin so
+                    // visual blocks never become real blocks. Here we own the
+                    // lifecycle and detect the first actual landing.
+                    for (FallingBlock entity : entities) {
+                        if (entity.isValid() && entity.isOnGround()) {
+                            landed = true;
+                            break;
+                        }
+                    }
+
+                    if (landed && !rewardsGiven) {
+                        rewardsGiven = true;
+                        giveRewards(plugin, world, center, drops, player, toolSlot,
+                                toolSnapshot, falling, spread, random);
+                        if (settings.sounds) {
+                            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
+                            world.spawnParticle(Particle.CLOUD,
+                                    center.clone().add(0.5, 0.35, 0.5),
+                                    14, 0.7, 0.2, 0.7, 0.035);
+                        }
+                        cleanupAt = ticks + 2L;
                     }
 
                     if (settings.particles && ticks % settings.particleInterval == 0) {
@@ -140,15 +165,29 @@ public final class TreeAnimator {
                     }
 
                     if (index >= animated.size() && cleanupAt < 0L) {
-                        if (settings.sounds) {
-                            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
-                            world.spawnParticle(Particle.CLOUD, center.clone().add(0.5, 0.35, 0.5),
-                                    14, 0.7, 0.2, 0.7, 0.035);
+                        // Some FallingBlocks may have their landing event cancelled
+                        // before Bukkit reports isOnGround(). Do not lose drops:
+                        // consider the animation complete as the fallback landing.
+                        if (!rewardsGiven && ticks >= 12L) {
+                            rewardsGiven = true;
+                            giveRewards(plugin, world, center, drops, player, toolSlot,
+                                    toolSnapshot, falling, spread, random);
+                            if (settings.sounds) {
+                                world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
+                                world.spawnParticle(Particle.CLOUD,
+                                        center.clone().add(0.5, 0.35, 0.5),
+                                        14, 0.7, 0.2, 0.7, 0.035);
+                            }
+                            cleanupAt = ticks + 2L;
                         }
-                        cleanupAt = ticks + Math.min(20L, settings.animationTimeoutTicks / 4L);
                     }
 
                     if (ticks >= settings.animationTimeoutTicks) {
+                        if (!rewardsGiven) {
+                            rewardsGiven = true;
+                            giveRewards(plugin, world, center, drops, player, toolSlot,
+                                    toolSnapshot, falling, spread, random);
+                        }
                         removeRemainingBlocks(animated, index);
                         cleanupAt = ticks + 1L;
                     }
@@ -159,6 +198,14 @@ public final class TreeAnimator {
                         cancel();
                     }
                 } catch (Throwable throwable) {
+                    if (!rewardsGiven) {
+                        try {
+                            giveRewards(plugin, world, center, drops, player, toolSlot,
+                                    toolSnapshot, falling, spread, random);
+                        } catch (Throwable ignored) {
+                            // Keep the cleanup path alive even if a reward operation fails.
+                        }
+                    }
                     removeRemainingBlocks(animated, index);
                     cleanupEntities();
                     plugin.releaseTree(treeKey);
