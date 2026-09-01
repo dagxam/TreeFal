@@ -47,11 +47,9 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         saveDefaultConfig();
         settings = new Settings(this);
         getServer().getPluginManager().registerEvents(this, this);
-
         setupWorldGuard();
         setupRealisticSeasons();
-
-        getLogger().info("TreeFall 1.5.0 enabled.");
+        getLogger().info("TreeFall 1.6.0 enabled.");
     }
 
     @Override
@@ -72,7 +70,6 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     private void setupRealisticSeasons() {
         Plugin rs = getServer().getPluginManager().getPlugin("RealisticSeasons");
         if (rs == null || !rs.isEnabled()) return;
-
         rsHook = new RealisticSeasonsHook(rs, getLogger());
         if (!rsHook.init()) {
             rsHook = null;
@@ -85,19 +82,16 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     @Override
     public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (!cmd.getName().equalsIgnoreCase("treefall")) return false;
-
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission("treefall.admin")) {
                 sender.sendMessage(settings.noPermissionMessage);
                 return true;
             }
-
             settings = new Settings(this);
             sender.sendMessage(settings.reloadMessage);
             getLogger().info("Configuration reloaded by " + sender.getName() + ".");
             return true;
         }
-
         sender.sendMessage(settings.usageMessage);
         return true;
     }
@@ -115,14 +109,12 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onLogBreak(BlockBreakEvent event) {
         if (!settings.enabled) return;
-
         Block cutBlock = event.getBlock();
         if (!Tag.LOGS.isTagged(cutBlock.getType())) return;
 
         Player player = event.getPlayer();
         if (player.getGameMode() == GameMode.CREATIVE) return;
         if (settings.isWorldBlacklisted(cutBlock.getWorld().getName())) return;
-
         if (settings.sneakToDisable && player.isSneaking()) return;
         if (player.hasPermission(settings.bypassPermission)) return;
         if (settings.requirePermission && !player.hasPermission(PERMISSION_USE)) return;
@@ -140,24 +132,23 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
 
         boolean hasAxe = player.getInventory().getItemInMainHand().getType().name().endsWith("_AXE");
         if (settings.requireAxeForBig && !hasAxe && trunkHeight > 6) return;
-
         if (TreeDetector.hasSideLogsAtBase(trunkBottom)) return;
 
         Block top = trunkBottom.getRelative(0, trunkHeight - 1, 0);
-        if (!TreeDetector.hasCanopyAbove(top)) return;
+        if (!TreeDetector.hasCanopyAbove(top, settings)) return;
 
         String treeKey = TreeDetector.getTreeKey(trunkBottom);
         if (!activeTrees.add(treeKey)) return;
 
         try {
             int firstTryLimit = settings.maxBlocks;
-            TreeBlocks fullTree = TreeDetector.collectTree(trunkBottom, firstTryLimit);
-
+            TreeBlocks fullTree = TreeDetector.collectTree(trunkBottom, firstTryLimit, settings);
             if (fullTree.truncated()) {
-                fullTree = TreeDetector.collectTree(trunkBottom, Math.min(5000, Math.max(firstTryLimit, 2200)));
+                fullTree = TreeDetector.collectTree(trunkBottom,
+                        Math.min(5000, Math.max(firstTryLimit, 2200)), settings);
             }
             if (fullTree.truncated() && firstTryLimit < 5000) {
-                fullTree = TreeDetector.collectTree(trunkBottom, 5000);
+                fullTree = TreeDetector.collectTree(trunkBottom, 5000, settings);
             }
 
             if (fullTree.truncated()) {
@@ -167,7 +158,6 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                         + cutBlock.getY() + ", " + cutBlock.getZ());
                 return;
             }
-
             if (fullTree.logs().isEmpty()) {
                 activeTrees.remove(treeKey);
                 return;
@@ -179,37 +169,30 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                 return;
             }
 
+            // Check every affected block before cancelling the original break event.
+            if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, falling)) {
+                activeTrees.remove(treeKey);
+                player.sendMessage(settings.worldGuardErrorMessage);
+                return;
+            }
+
             event.setCancelled(true);
             cooldowns.put(player.getUniqueId(), now);
 
             World world = cutBlock.getWorld();
             Location center = cutBlock.getLocation();
             String season = rsHook != null ? rsHook.getSeasonName(world) : null;
+            ItemStack toolSnapshot = player.getInventory().getItemInMainHand().clone();
             TreeDropCalculator.DropResult drops = TreeDropCalculator.calculate(
-                    this, falling, season, settings);
+                    this, falling, season, settings, toolSnapshot);
 
             int toolSlot = player.getInventory().getHeldItemSlot();
-            ItemStack toolSnapshot = player.getInventory().getItemInMainHand().clone();
-
             Vector fallDirection = player.getLocation().getDirection().setY(0);
-            if (fallDirection.lengthSquared() < 0.001) {
-                fallDirection = new Vector(0, 0, 1);
-            } else {
-                fallDirection.normalize();
-            }
+            if (fallDirection.lengthSquared() < 0.001) fallDirection = new Vector(0, 0, 1);
+            else fallDirection.normalize();
 
-            TreeAnimator.play(
-                    this,
-                    world,
-                    center,
-                    falling,
-                    drops,
-                    player,
-                    toolSlot,
-                    toolSnapshot,
-                    treeKey,
-                    fallDirection
-            );
+            TreeAnimator.play(this, world, center, falling, drops, player,
+                    toolSlot, toolSnapshot, treeKey, fallDirection);
         } catch (Throwable throwable) {
             activeTrees.remove(treeKey);
             getLogger().severe("TreeFall failed safely: " + throwable.getClass().getSimpleName()
@@ -217,8 +200,22 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         }
     }
 
+    private boolean canBreakWholeTree(Player player, TreeBlocks tree) {
+        for (Block block : tree.logs()) {
+            if (!wgHook.canBreak(player, block)) return false;
+        }
+        for (Block block : tree.leaves()) {
+            if (!wgHook.canBreak(player, block)) return false;
+        }
+        return true;
+    }
+
     void releaseTree(String treeKey) {
         if (treeKey != null) activeTrees.remove(treeKey);
+    }
+
+    int activeTreeCount() {
+        return activeTrees.size();
     }
 
     private void cleanupCooldowns(long now) {
@@ -230,14 +227,8 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     private TreeBlocks sliceAboveY(TreeBlocks tree, int cutY) {
         Set<Block> logs = new HashSet<>();
         Set<Block> leaves = new HashSet<>();
-
-        for (Block block : tree.logs()) {
-            if (block.getY() >= cutY) logs.add(block);
-        }
-        for (Block block : tree.leaves()) {
-            if (block.getY() >= cutY) leaves.add(block);
-        }
-
+        for (Block block : tree.logs()) if (block.getY() >= cutY) logs.add(block);
+        for (Block block : tree.leaves()) if (block.getY() >= cutY) leaves.add(block);
         return new TreeBlocks(logs, leaves);
     }
 }
