@@ -1,54 +1,45 @@
 # TreeFall Configuration
-# Technical commands stay in English; messages are configurable below.
 
 enabled: true
 
 authorization:
-  require-permission: true
+  require-permission: false
   bypass-permission: treefall.bypass
 
-sneak-to-disable: true
+# Sneaking no longer disables TreeFall by default.
+sneak-to-disable: false
 damage-tool: true
 require-axe-for-big: false
-min-trunk-height: 4
+min-trunk-height: 1
 max-blocks: 512
 cooldown-ms: 500
 world-blacklist: []
 
 tree-detection:
-  # Persistent/player-placed leaves are ignored by default.
   ignore-persistent-leaves: true
-  # Safety limits for a single connected tree structure.
   max-horizontal-distance: 12
   max-vertical-distance: 48
 
 animation:
-  # Visual FallingBlock limit. Detected blocks are never lost because of this limit.
-  max-falling-blocks: 80
+  # Up to 300 blocks can be animated. Remaining blocks are still removed and
+  # their drops are preserved, preventing the tree from leaving blocks behind.
+  max-falling-blocks: 300
   blocks-per-tick: 18
   tick-delay: 1
   timeout-ticks: 100
-
-  # Reduce visual entity count automatically when many TreeFall animations are active.
-  adaptive: true
+  adaptive: false
   busy-threshold: 8
-
-  # Push the tree in the direction the player is looking.
   directional-fall: true
   horizontal-velocity: 0.12
   upward-velocity: 0.02
   random-spread: 0.025
-
   particles: true
   particle-interval: 2
   sounds: true
   sound-interval: 8
 
 drop:
-  # Silk Touch makes all detected natural leaves drop as leaf blocks and disables
-  # sapling/stick/apple bonus drops, matching the intended vanilla behavior.
   use-silk-touch: true
-  # Fortune increases the chance/amount of secondary leaf drops.
   use-fortune: true
   chance:
     stick: 0.02
