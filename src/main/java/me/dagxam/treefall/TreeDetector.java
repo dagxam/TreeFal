@@ -8,7 +8,6 @@ import org.bukkit.block.data.type.Leaves;
 
 import java.util.ArrayDeque;
 import java.util.HashSet;
-import java.util.Locale;
 import java.util.Set;
 
 public final class TreeDetector {
@@ -36,6 +35,10 @@ public final class TreeDetector {
         return height;
     }
 
+    /**
+     * Reject only genuine side-log structures at the base. A valid 2x2 trunk is handled
+     * separately and is never rejected here.
+     */
     public static boolean hasSideLogsAtBase(Block base) {
         if (is2x2Trunk(base)) return false;
 
@@ -48,45 +51,29 @@ public final class TreeDetector {
         return false;
     }
 
+    /** Detect any 2x2 square of identical log blocks, without hard-coding tree species. */
     public static boolean is2x2Trunk(Block base) {
         Material material = base.getType();
-        if (!is2x2Candidate(material)) return false;
+        if (!Tag.LOGS.isTagged(material)) return false;
 
-        int[][] corners = {{0, 0}, {-1, 0}, {0, -1}, {-1, -1}};
-        for (int[] corner : corners) {
-            boolean match = true;
-            for (int dx = 0; dx <= 1 && match; dx++) {
-                for (int dz = 0; dz <= 1; dz++) {
-                    if (base.getRelative(corner[0] + dx, 0, corner[1] + dz).getType() != material) {
-                        match = false;
-                        break;
-                    }
-                }
+        for (int ox = -1; ox <= 0; ox++) {
+            for (int oz = -1; oz <= 0; oz++) {
+                if (isExact2x2At(base.getRelative(ox, 0, oz), material)) return true;
             }
-            if (match) return true;
         }
         return false;
     }
 
-    private static boolean is2x2Candidate(Material material) {
-        return material == Material.DARK_OAK_LOG
-                || material == Material.SPRUCE_LOG
-                || material == Material.JUNGLE_LOG;
-    }
-
-    /**
-     * Produces a stable identity for the tree. For 2x2 trunks it uses the minimum X/Z corner,
-     * preventing two simultaneous clicks on different trunk columns from starting two animations.
-     */
     public static String getTreeKey(Block base) {
         int x = base.getX();
         int z = base.getZ();
 
         if (is2x2Trunk(base)) {
+            Material material = base.getType();
             for (int dx = -1; dx <= 0; dx++) {
                 for (int dz = -1; dz <= 0; dz++) {
                     Block candidate = base.getRelative(dx, 0, dz);
-                    if (isExact2x2At(candidate, base.getType())) {
+                    if (isExact2x2At(candidate, material)) {
                         x = Math.min(x, candidate.getX());
                         z = Math.min(z, candidate.getZ());
                     }
@@ -117,12 +104,34 @@ public final class TreeDetector {
         return false;
     }
 
+    /**
+     * Collects a connected tree. Logs use face connectivity so nearby trunks do not get
+     * joined diagonally. Leaves use full 26-neighbour connectivity only after a real log/leaf
+     * connection has been found.
+     */
     public static TreeBlocks collectTree(Block start, int limit) {
         Set<Block> logs = new HashSet<>();
         Set<Block> leaves = new HashSet<>();
         Set<Block> visited = new HashSet<>();
         ArrayDeque<Block> queue = new ArrayDeque<>();
         queue.add(start);
+
+        if (is2x2Trunk(start)) {
+            Material material = start.getType();
+            for (int dx = -1; dx <= 0; dx++) {
+                for (int dz = -1; dz <= 0; dz++) {
+                    Block candidate = start.getRelative(dx, 0, dz);
+                    if (isExact2x2At(candidate, material)) {
+                        for (int ox = 0; ox <= 1; ox++) {
+                            for (int oz = 0; oz <= 1; oz++) {
+                                Block corner = candidate.getRelative(ox, 0, oz);
+                                if (!visited.contains(corner)) queue.add(corner);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         final int maxHorizDist = 12;
         final int maxVertDist = 48;
@@ -140,18 +149,19 @@ public final class TreeDetector {
                 continue;
             }
 
-            if (Tag.LOGS.isTagged(block.getType())) {
-                logs.add(block);
-            } else if (isLeafLike(block)) {
-                leaves.add(block);
-            } else {
-                continue;
-            }
+            boolean log = Tag.LOGS.isTagged(block.getType());
+            boolean leaf = isLeafLike(block);
+            if (log) logs.add(block);
+            else if (leaf) leaves.add(block);
+            else continue;
 
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    for (int dz = -1; dz <= 1; dz++) {
+            int min = -1;
+            int max = 1;
+            for (int dx = min; dx <= max; dx++) {
+                for (int dy = min; dy <= max; dy++) {
+                    for (int dz = min; dz <= max; dz++) {
                         if (dx == 0 && dy == 0 && dz == 0) continue;
+                        if (log && Math.abs(dx) + Math.abs(dy) + Math.abs(dz) != 1) continue;
                         Block next = block.getRelative(dx, dy, dz);
                         if (!visited.contains(next)) queue.add(next);
                     }
@@ -159,23 +169,13 @@ public final class TreeDetector {
             }
         }
 
-        boolean truncated = !queue.isEmpty();
-        return new TreeBlocks(logs, leaves, truncated);
+        return new TreeBlocks(logs, leaves, !queue.isEmpty());
     }
 
     static boolean isLeafLike(Block block) {
         BlockData data = block.getBlockData();
-        if (data instanceof Leaves leaves) {
-            return !leaves.isPersistent();
-        }
-
-        Material type = block.getType();
-        if (Tag.LEAVES.isTagged(type)) return true;
-
-        String name = type.name().toUpperCase(Locale.ROOT);
-        return name.contains("LEAVES")
-                || name.contains("NEEDLES")
-                || name.contains("CANOPY");
+        if (data instanceof Leaves leaves) return !leaves.isPersistent();
+        return Tag.LEAVES.isTagged(block.getType());
     }
 
     public static Material getAnyLeafMaterial(TreeBlocks tree) {
