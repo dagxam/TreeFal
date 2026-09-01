@@ -42,7 +42,7 @@ public final class TreeAnimator {
 
         double spread = falling.leaves().size() >= Settings.BIG_TREE_LEAVES ? 3.5 : 1.8;
         int configuredLimit = settings.maxFallingBlocks;
-        if (settings.adaptiveAnimation && plugin.activeTreeCount() > settings.busyAnimationThreshold) {
+        if (settings.adaptiveAnimation && plugin.activeTreeCount() >= settings.busyAnimationThreshold) {
             configuredLimit = Math.max(10, configuredLimit / 2);
         }
         int maxAnimated = Math.min(allBlocks.size(), configuredLimit);
@@ -81,7 +81,6 @@ public final class TreeAnimator {
             private int index;
             private long ticks;
             private long cleanupAt = -1L;
-            private boolean rewardsGiven;
             private final List<FallingBlock> entities = new ArrayList<>();
 
             @Override
@@ -93,7 +92,8 @@ public final class TreeAnimator {
 
                     while (index < animated.size() && processed < batch) {
                         Block block = animated.get(index++);
-                        if (block.getType() == Material.AIR) {
+                        Material type = block.getType();
+                        if (type == Material.AIR) {
                             processed++;
                             continue;
                         }
@@ -105,7 +105,6 @@ public final class TreeAnimator {
                         FallingBlock entity = world.spawnFallingBlock(spawnLocation, data);
                         entity.setDropItem(false);
                         entity.setHurtEntities(false);
-                        entity.setGravity(true);
                         entity.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
 
                         double heightFactor = Math.max(0.25,
@@ -114,10 +113,7 @@ public final class TreeAnimator {
                                 ? settings.horizontalVelocity * heightFactor : 0.0;
 
                         Vector velocity = finalDirection.clone().multiply(horizontal);
-                        // A positive upward velocity was previously being applied,
-                        // which could keep the visual blocks suspended. Start them
-                        // downward and let Minecraft gravity create the fall.
-                        velocity.setY(-0.08 + Math.min(settings.upwardVelocity, 0.02));
+                        velocity.setY(settings.upwardVelocity);
                         velocity.add(new Vector(
                                 (random.nextDouble() - 0.5) * settings.randomSpread,
                                 0,
@@ -126,32 +122,6 @@ public final class TreeAnimator {
 
                         entities.add(entity);
                         processed++;
-                    }
-
-                    // Never let TreeFall FallingBlocks place real blocks back.
-                    // Loot is intentionally not generated here; it is generated
-                    // only after the visual fall has had time to reach the ground.
-                    if (!rewardsGiven && index >= animated.size()) {
-                        boolean landed = false;
-                        for (FallingBlock entity : entities) {
-                            if (!entity.isValid()) continue;
-                            if (entity.isOnGround()) {
-                                landed = true;
-                                break;
-                            }
-                        }
-
-                        // Some servers/plugins cancel the entity-change event and
-                        // Bukkit may not expose isOnGround(). After a full visible
-                        // fall window, use a safe fallback so loot is never lost.
-                        long minimumFallTicks = Math.max(20L, Math.min(80L, height * 3L));
-                        if (landed || ticks >= minimumFallTicks) {
-                            rewardsGiven = true;
-                            giveRewards(plugin, world, center, drops, player, toolSlot,
-                                    toolSnapshot, falling, spread, random);
-                            playLandingEffect(settings, world, center);
-                            cleanupAt = ticks + 4L;
-                        }
                     }
 
                     if (settings.particles && ticks % Math.max(1, settings.particleInterval) == 0) {
@@ -165,32 +135,45 @@ public final class TreeAnimator {
                                 0.85f + random.nextFloat() * 0.25f);
                     }
 
-                    if (ticks >= settings.animationTimeoutTicks) {
-                        if (!rewardsGiven) {
-                            rewardsGiven = true;
-                            giveRewards(plugin, world, center, drops, player, toolSlot,
-                                    toolSnapshot, falling, spread, random);
-                            playLandingEffect(settings, world, center);
+                    if (index >= animated.size() && cleanupAt < 0L) {
+                        if (settings.sounds) {
+                            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
                         }
+                        if (settings.particles) {
+                            world.spawnParticle(Particle.CLOUD, center.clone().add(0.5, 0.35, 0.5),
+                                    14, 0.7, 0.2, 0.7, 0.035);
+                        }
+                        // Drops are intentionally spawned only after the falling animation
+                        // has had time to reach the ground.
+                        cleanupAt = ticks + Math.min(20L, settings.animationTimeoutTicks / 4L);
+                    }
+
+                    if (ticks >= settings.animationTimeoutTicks) {
+                        if (settings.sounds) {
+                            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
+                        }
+                        if (settings.particles) {
+                            world.spawnParticle(Particle.CLOUD, center.clone().add(0.5, 0.35, 0.5),
+                                    14, 0.7, 0.2, 0.7, 0.035);
+                        }
+                        giveRewards(plugin, world, center, drops, player, toolSlot,
+                                toolSnapshot, falling, spread, random);
                         removeRemainingBlocks(animated, index);
                         cleanupAt = ticks + 1L;
                     }
 
                     if (cleanupAt >= 0L && ticks >= cleanupAt) {
+                        // The requested behavior is to leave the loot in the world after
+                        // the complete visual fall. Rewards are emitted here, once.
+                        giveRewardsOnce(plugin, world, center, drops, player, toolSlot,
+                                toolSnapshot, falling, spread, random);
                         cleanupEntities();
                         plugin.releaseTree(treeKey);
                         cancel();
                     }
                 } catch (Throwable throwable) {
-                    if (!rewardsGiven) {
-                        try {
-                            rewardsGiven = true;
-                            giveRewards(plugin, world, center, drops, player, toolSlot,
-                                    toolSnapshot, falling, spread, random);
-                        } catch (Throwable ignored) {
-                            // Preserve cleanup even if a reward operation fails.
-                        }
-                    }
+                    giveRewardsOnce(plugin, world, center, drops, player, toolSlot,
+                            toolSnapshot, falling, spread, random);
                     removeRemainingBlocks(animated, index);
                     cleanupEntities();
                     plugin.releaseTree(treeKey);
@@ -200,22 +183,29 @@ public final class TreeAnimator {
                 }
             }
 
+            private boolean rewardsGiven;
+
+            private void giveRewardsOnce(TreeFallPlugin plugin,
+                                         World world,
+                                         Location center,
+                                         TreeDropCalculator.DropResult drops,
+                                         Player player,
+                                         int toolSlot,
+                                         ItemStack toolSnapshot,
+                                         TreeBlocks falling,
+                                         double spread,
+                                         Random random) {
+                if (rewardsGiven) return;
+                rewardsGiven = true;
+                giveRewards(plugin, world, center, drops, player, toolSlot,
+                        toolSnapshot, falling, spread, random);
+            }
+
             private void cleanupEntities() {
                 for (FallingBlock entity : entities) if (entity.isValid()) entity.remove();
                 entities.clear();
             }
         }.runTaskTimer(plugin, 0L, Math.max(1L, settings.animTickDelay));
-    }
-
-    private static void playLandingEffect(Settings settings, World world, Location center) {
-        if (settings.sounds) {
-            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
-        }
-        if (settings.particles) {
-            world.spawnParticle(Particle.CLOUD,
-                    center.clone().add(0.5, 0.35, 0.5),
-                    14, 0.7, 0.2, 0.7, 0.035);
-        }
     }
 
     private static void removeRemainingBlocks(List<Block> blocks, int fromIndex) {
