@@ -43,14 +43,15 @@ public final class TreeAnimator {
             return;
         }
 
-        // Capture BlockData BEFORE replacing the real blocks with air. The old
-        // implementation read BlockData after setType(AIR), which produced AIR
-        // FallingBlocks and made the animation appear to do nothing.
+        // Capture the original block state BEFORE replacing blocks with air.
         Map<Block, BlockData> originalData = new HashMap<>();
-        for (Block block : allBlocks) originalData.put(block, block.getBlockData().clone());
+        for (Block block : allBlocks) {
+            originalData.put(block, block.getBlockData().clone());
+        }
 
         int maxAnimated = Math.min(allBlocks.size(), settings.maxFallingBlocks);
-        List<Block> visualBlocks = new ArrayList<>(allBlocks.size());
+        List<Block> visualBlocks = new ArrayList<>(maxAnimated);
+        // Logs always get animation priority. Leaves use the remaining slots.
         for (Block block : falling.logs()) {
             if (visualBlocks.size() >= maxAnimated) break;
             visualBlocks.add(block);
@@ -60,10 +61,12 @@ public final class TreeAnimator {
             visualBlocks.add(block);
         }
 
-        // Remove every block in the falling slice immediately. Blocks below the
-        // cut point were never included and therefore remain untouched.
+        // Remove exactly the falling slice. Blocks below the cut were never in
+        // 'falling' and therefore remain completely untouched.
         for (Block block : allBlocks) {
-            if (block.getType() != Material.AIR) block.setType(Material.AIR, false);
+            if (block.getType() != Material.AIR) {
+                block.setType(Material.AIR, false);
+            }
         }
 
         Vector direction = fallDirection.clone().setY(0);
@@ -90,7 +93,9 @@ public final class TreeAnimator {
             visuals.add(new VisualBlock(entity, relative));
         }
 
-        if (settings.sounds) world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 1.1f, 0.55f);
+        if (settings.sounds) {
+            world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 1.1f, 0.55f);
+        }
 
         final Vector finalAxis = axis;
         final Vector finalDirection = direction;
@@ -105,10 +110,11 @@ public final class TreeAnimator {
                 try {
                     tick++;
                     double progress = Math.min(1.0, tick / (double) duration);
-                    // Smoothstep gives a natural slow start and slow landing.
                     double eased = progress * progress * (3.0 - 2.0 * progress);
                     double angle = Math.toRadians(settings.fallAngleDegrees) * eased;
                     double drift = settings.fallDistance * eased;
+                    double minY = Double.MAX_VALUE;
+                    Location impact = pivot.clone().add(finalDirection.clone().multiply(drift));
 
                     for (VisualBlock visual : visuals) {
                         if (!visual.entity.isValid()) continue;
@@ -117,31 +123,48 @@ public final class TreeAnimator {
                                 .add(finalDirection.clone().multiply(drift));
                         visual.entity.teleport(new Location(world,
                                 position.getX(), position.getY(), position.getZ()));
+                        minY = Math.min(minY, position.getY() - 0.5);
+                    }
+
+                    // The animation ends when the lowest visual block reaches
+                    // the actual world surface, or at the configured duration.
+                    boolean hitGround = false;
+                    if (minY != Double.MAX_VALUE) {
+                        for (VisualBlock visual : visuals) {
+                            if (!visual.entity.isValid()) continue;
+                            Location loc = visual.entity.getLocation();
+                            int groundY = world.getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ());
+                            if (loc.getY() - 0.5 <= groundY + 0.05) {
+                                impact = loc.clone();
+                                hitGround = true;
+                                break;
+                            }
+                        }
                     }
 
                     if (settings.particles && tick % Math.max(1, settings.particleInterval) == 0) {
-                        Location effect = pivot.clone().add(finalDirection.clone().multiply(drift));
-                        world.spawnParticle(Particle.CLOUD, effect, 3,
+                        world.spawnParticle(Particle.CLOUD, impact, 3,
                                 0.35, 0.2, 0.35, 0.015);
                     }
 
                     if (settings.sounds && tick % Math.max(1, settings.soundInterval) == 0
-                            && progress < 0.9) {
+                            && !hitGround && progress < 0.9) {
                         world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 0.45f,
                                 0.8f + random.nextFloat() * 0.25f);
                     }
 
-                    if (progress >= 1.0) {
+                    if (hitGround || progress >= 1.0) {
                         if (!rewardsGiven) {
                             rewardsGiven = true;
-                            Location impact = pivot.clone().add(
-                                    finalDirection.clone().multiply(settings.fallDistance));
                             giveRewards(plugin, world, impact, drops, player, toolSlot,
                                     toolSnapshot, falling, random);
-                            if (settings.sounds) world.playSound(impact,
-                                    Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
-                            if (settings.particles) world.spawnParticle(Particle.CLOUD,
-                                    impact, 18, 0.8, 0.2, 0.8, 0.04);
+                            if (settings.sounds) {
+                                world.playSound(impact, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
+                            }
+                            if (settings.particles) {
+                                world.spawnParticle(Particle.CLOUD, impact, 18,
+                                        0.8, 0.2, 0.8, 0.04);
+                            }
                         }
 
                         for (VisualBlock visual : visuals) {
@@ -156,7 +179,9 @@ public final class TreeAnimator {
                         giveRewards(plugin, world, pivot, drops, player, toolSlot,
                                 toolSnapshot, falling, random);
                     }
-                    for (VisualBlock visual : visuals) if (visual.entity.isValid()) visual.entity.remove();
+                    for (VisualBlock visual : visuals) {
+                        if (visual.entity.isValid()) visual.entity.remove();
+                    }
                     plugin.releaseTree(treeKey);
                     plugin.getLogger().warning("TreeFall animation recovered from an error: "
                             + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
@@ -190,12 +215,15 @@ public final class TreeAnimator {
                                     Random random) {
         dropScattered(world, center, drops.leafDrops(), 2.5, random);
         dropScattered(world, center, drops.logDrops(), 2.5, random);
-        if (drops.sticks() > 0) scatterItem(world, center,
-                new ItemStack(Material.STICK, drops.sticks()), 2.5, random);
-        if (drops.saplingType() != null && drops.saplings() > 0) scatterItem(world, center,
-                new ItemStack(drops.saplingType(), drops.saplings()), 2.5, random);
-        if (drops.fruitType() != null && drops.fruits() > 0) scatterItem(world, center,
-                new ItemStack(drops.fruitType(), drops.fruits()), 2.5, random);
+        if (drops.sticks() > 0) {
+            scatterItem(world, center, new ItemStack(Material.STICK, drops.sticks()), 2.5, random);
+        }
+        if (drops.saplingType() != null && drops.saplings() > 0) {
+            scatterItem(world, center, new ItemStack(drops.saplingType(), drops.saplings()), 2.5, random);
+        }
+        if (drops.fruitType() != null && drops.fruits() > 0) {
+            scatterItem(world, center, new ItemStack(drops.fruitType(), drops.fruits()), 2.5, random);
+        }
         if (plugin.settings.damageTool) {
             ToolDamageHandler.damageTool(player, toolSlot, toolSnapshot, falling.logs().size(), random);
         }
