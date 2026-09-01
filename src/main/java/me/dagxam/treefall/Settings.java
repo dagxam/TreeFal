@@ -30,6 +30,7 @@ public final class Settings {
     final boolean adaptiveAnimation;
     final int busyAnimationThreshold;
     final boolean directionalFall;
+    final boolean randomFallDirection;
     final double horizontalVelocity;
     final double upwardVelocity;
     final double randomSpread;
@@ -83,6 +84,7 @@ public final class Settings {
         adaptiveAnimation = c.getBoolean("animation.adaptive", false);
         busyAnimationThreshold = clampInt(c.getInt("animation.busy-threshold", 8), 1, 100);
         directionalFall = c.getBoolean("animation.directional-fall", true);
+        randomFallDirection = c.getBoolean("animation.random-direction", true);
         horizontalVelocity = clampDouble(c.getDouble("animation.horizontal-velocity", 0.12), 0.0, 1.0);
         upwardVelocity = clampDouble(c.getDouble("animation.upward-velocity", 0.02), 0.0, 0.5);
         randomSpread = clampDouble(c.getDouble("animation.random-spread", 0.025), 0.0, 0.25);
