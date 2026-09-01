@@ -14,10 +14,58 @@ public final class TreeDetector {
 
     private TreeDetector() {}
 
+    /**
+     * Finds the real base of a tree instead of only walking straight down from
+     * the block that was hit. This is important for branches and for trees
+     * grown from saplings whose lower canopy/branches can make the hit block
+     * no longer be part of a simple vertical column.
+     */
     public static Block findTrunkBottom(Block start) {
+        Block direct = walkDownLogs(start, 128);
+        Block best = direct;
+        int bestHeight = measureVerticalSupport(direct);
+
+        // A hit may be on a branch. Search a small horizontal area while
+        // walking down and prefer the lowest candidate with a real trunk.
+        for (int dy = 0; dy <= 8; dy++) {
+            Block level = start.getRelative(0, -dy, 0);
+            for (int dx = -2; dx <= 2; dx++) {
+                for (int dz = -2; dz <= 2; dz++) {
+                    Block candidate = level.getRelative(dx, 0, dz);
+                    if (!Tag.LOGS.isTagged(candidate.getType())) continue;
+                    if (!hasGroundOrTrunkSupport(candidate)) continue;
+
+                    int height = measureVerticalSupport(candidate);
+                    if (height >= bestHeight && candidate.getY() <= best.getY()) {
+                        best = candidate;
+                        bestHeight = height;
+                    }
+                }
+            }
+        }
+
+        // Explicitly handle a 2x2 trunk: return its lowest corner so all four
+        // logs are included when collection starts.
+        if (is2x2Trunk(best)) {
+            Material material = best.getType();
+            Block corner = best;
+            for (int dx = -1; dx <= 0; dx++) {
+                for (int dz = -1; dz <= 0; dz++) {
+                    Block candidate = best.getRelative(dx, 0, dz);
+                    if (isExact2x2At(candidate, material)
+                            && candidate.getY() <= corner.getY()) {
+                        corner = candidate;
+                    }
+                }
+            }
+            return corner;
+        }
+        return best;
+    }
+
+    private static Block walkDownLogs(Block start, int maxDepth) {
         Block current = start;
-        int depth = 0;
-        while (depth++ < 64) {
+        for (int depth = 0; depth < maxDepth; depth++) {
             Block below = current.getRelative(0, -1, 0);
             if (!Tag.LOGS.isTagged(below.getType())) break;
             current = below;
@@ -25,14 +73,25 @@ public final class TreeDetector {
         return current;
     }
 
-    public static int measureTrunkHeight(Block bottom) {
+    private static int measureVerticalSupport(Block block) {
+        if (!Tag.LOGS.isTagged(block.getType())) return 0;
         int height = 0;
-        Block current = bottom;
+        Block current = block;
         while (height < 128 && Tag.LOGS.isTagged(current.getType())) {
             height++;
             current = current.getRelative(0, 1, 0);
         }
         return height;
+    }
+
+    private static boolean hasGroundOrTrunkSupport(Block block) {
+        if (Tag.LOGS.isTagged(block.getRelative(0, -1, 0).getType())) return true;
+        Material below = block.getRelative(0, -1, 0).getType();
+        return below.isSolid() && !Tag.LOGS.isTagged(below) && !Tag.LEAVES.isTagged(below);
+    }
+
+    public static int measureTrunkHeight(Block bottom) {
+        return measureVerticalSupport(bottom);
     }
 
     public static boolean hasSideLogsAtBase(Block base) {
@@ -85,8 +144,8 @@ public final class TreeDetector {
     }
 
     public static boolean hasCanopyAbove(Block top, Settings settings) {
-        int radius = 2;
-        int height = 5;
+        int radius = 3;
+        int height = 6;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dy = 1; dy <= height; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
@@ -112,6 +171,7 @@ public final class TreeDetector {
                     if (isExact2x2At(candidate, material)) {
                         for (int ox = 0; ox <= 1; ox++) {
                             for (int oz = 0; oz <= 1; oz++) queue.add(candidate.getRelative(ox, 0, oz));
+                        }
                     }
                 }
             }
