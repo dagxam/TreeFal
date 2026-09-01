@@ -103,14 +103,12 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         if (!Tag.LOGS.isTagged(cutBlock.getType())) return;
 
         Player player = event.getPlayer();
-        if (player.getGameMode() == GameMode.CREATIVE) return;
+        // TreeFall must work in both survival and creative. Creative only changes
+        // the normal tool-durability behavior; it must not disable the tree mechanic.
         if (settings.isWorldBlacklisted(cutBlock.getWorld().getName())) return;
         if (player.hasPermission(settings.bypassPermission)) return;
         if (settings.sneakToDisable && player.isSneaking()) return;
 
-        // TreeFall is deliberately triggered by the log hit itself. We do not
-        // require a particular tool or a minimum trunk/canopy shape: this makes
-        // sapling-grown and naturally irregular trees use the same fall mechanic.
         long now = System.currentTimeMillis();
         Long last = cooldowns.get(player.getUniqueId());
         if (last != null && now - last < settings.cooldownMs) return;
@@ -128,6 +126,11 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         }
         if (fullTree.truncated() || fullTree.logs().isEmpty()) return;
 
+        // The block actually broken is the pivot/cut point. Everything below it
+        // stays in the world; everything at or above it is the part that falls.
+        TreeBlocks fallingTree = TreeDetector.sliceFromCut(fullTree, cutBlock);
+        if (fallingTree.logs().isEmpty()) return;
+
         Block trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
         if (!fullTree.logs().contains(trunkBottom)) {
             trunkBottom = fullTree.logs().stream()
@@ -141,29 +144,31 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         if (!activeTrees.add(treeKey)) return;
 
         try {
-            if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, fullTree)) {
+            if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, fallingTree)) {
                 activeTrees.remove(treeKey);
                 player.sendMessage(settings.worldGuardErrorMessage);
                 return;
             }
 
-            // Cancel vanilla breaking before starting any visual work.
+            // Cancel vanilla breaking before TreeAnimator changes any blocks.
             event.setCancelled(true);
+            event.setDropItems(false);
             cooldowns.put(player.getUniqueId(), now);
 
             World world = cutBlock.getWorld();
-            Location center = trunkBottom.getLocation();
+            Location center = cutBlock.getLocation().add(0.5, 0.0, 0.5);
             String season = rsHook != null ? rsHook.getSeasonName(world) : null;
             ItemStack toolSnapshot = player.getInventory().getItemInMainHand().clone();
+
             TreeDropCalculator.DropResult drops = TreeDropCalculator.calculate(
-                    this, fullTree, season, settings, toolSnapshot);
+                    this, fallingTree, season, settings, toolSnapshot);
 
             int toolSlot = player.getInventory().getHeldItemSlot();
             Vector fallDirection = player.getLocation().getDirection().setY(0);
             if (fallDirection.lengthSquared() < 0.001) fallDirection = new Vector(0, 0, 1);
             else fallDirection.normalize();
 
-            TreeAnimator.play(this, world, center, fullTree, drops, player,
+            TreeAnimator.play(this, world, center, fallingTree, drops, player,
                     toolSlot, toolSnapshot, treeKey, fallDirection);
         } catch (Throwable throwable) {
             activeTrees.remove(treeKey);
