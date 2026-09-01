@@ -27,22 +27,18 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class TreeFallPlugin extends JavaPlugin implements Listener {
-
     private static final String PERMISSION_USE = "treefall.use";
     static final String FALLING_TAG = "treefall_falling";
 
     final java.util.Random random = new java.util.Random();
     Settings settings;
-
     private boolean worldGuardPresent;
     private WorldGuardHook wgHook;
     RealisticSeasonsHook rsHook;
-
     private final Map<UUID, Long> cooldowns = new HashMap<>();
     private final Set<String> activeTrees = ConcurrentHashMap.newKeySet();
 
-    @Override
-    public void onEnable() {
+    @Override public void onEnable() {
         saveDefaultConfig();
         settings = new Settings(this);
         getServer().getPluginManager().registerEvents(this, this);
@@ -51,8 +47,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         getLogger().info("TreeFall 1.6.0 enabled.");
     }
 
-    @Override
-    public void onDisable() {
+    @Override public void onDisable() {
         activeTrees.clear();
         cooldowns.clear();
     }
@@ -73,13 +68,10 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         if (!rsHook.init()) {
             rsHook = null;
             getLogger().warning("RealisticSeasons detected, but API hook failed. Seasonal logic disabled.");
-        } else {
-            getLogger().info("RealisticSeasons detected. Seasonal logic enabled.");
-        }
+        } else getLogger().info("RealisticSeasons detected. Seasonal logic enabled.");
     }
 
-    @Override
-    public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
+    @Override public boolean onCommand(CommandSender sender, Command cmd, String label, String[] args) {
         if (!cmd.getName().equalsIgnoreCase("treefall")) return false;
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission("treefall.admin")) {
@@ -113,10 +105,12 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         Player player = event.getPlayer();
         if (player.getGameMode() == GameMode.CREATIVE) return;
         if (settings.isWorldBlacklisted(cutBlock.getWorld().getName())) return;
-        if (settings.sneakToDisable && player.isSneaking()) return;
         if (player.hasPermission(settings.bypassPermission)) return;
-        if (settings.requirePermission && !player.hasPermission(PERMISSION_USE)) return;
+        if (settings.sneakToDisable && player.isSneaking()) return;
 
+        // TreeFall is deliberately triggered by the log hit itself. We do not
+        // require a particular tool or a minimum trunk/canopy shape: this makes
+        // sapling-grown and naturally irregular trees use the same fall mechanic.
         long now = System.currentTimeMillis();
         Long last = cooldowns.get(player.getUniqueId());
         if (last != null && now - last < settings.cooldownMs) return;
@@ -124,45 +118,27 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
 
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
-        // The hit log is always the detection entry point. This is critical for
-        // sapling-grown trees because their generated trunk/canopy shape is not
-        // guaranteed to satisfy a fixed vertical-trunk heuristic.
         TreeBlocks fullTree;
-        Block trunkBottom;
         try {
             fullTree = collectTreeWithRetry(cutBlock);
-            if (fullTree.truncated() || fullTree.logs().isEmpty()) return;
-
-            // Never fall back to vanilla one-block breaking merely because the
-            // tree has a short trunk or an unusual canopy. Two connected logs or
-            // one log with a natural leaf canopy are enough for TreeFall.
-            if (fullTree.logs().size() < 2 && fullTree.leaves().isEmpty()) return;
-
-            trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
-            if (!fullTree.logs().contains(trunkBottom)) {
-                trunkBottom = fullTree.logs().stream()
-                        .min(java.util.Comparator.comparingInt(Block::getY)
-                                .thenComparingInt(Block::getX)
-                                .thenComparingInt(Block::getZ))
-                        .orElse(cutBlock);
-            }
         } catch (Throwable throwable) {
-            getLogger().warning("TreeFall detector rejected a log safely: "
+            getLogger().warning("TreeFall detector error at " + cutBlock.getLocation() + ": "
                     + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
             return;
         }
+        if (fullTree.truncated() || fullTree.logs().isEmpty()) return;
 
-        int minY = fullTree.logs().stream().mapToInt(Block::getY).min().orElse(cutBlock.getY());
-        int maxY = fullTree.logs().stream().mapToInt(Block::getY).max().orElse(cutBlock.getY());
-        int detectedHeight = maxY - minY + 1;
-        boolean hasAxe = player.getInventory().getItemInMainHand().getType().name().endsWith("_AXE");
-        if (settings.requireAxeForBig && !hasAxe && (detectedHeight > 6 || fullTree.logs().size() > 12)) return;
+        Block trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
+        if (!fullTree.logs().contains(trunkBottom)) {
+            trunkBottom = fullTree.logs().stream()
+                    .min(java.util.Comparator.comparingInt(Block::getY)
+                            .thenComparingInt(Block::getX)
+                            .thenComparingInt(Block::getZ))
+                    .orElse(cutBlock);
+        }
 
         String treeKey = TreeDetector.getTreeKey(trunkBottom);
-        if (!activeTrees.add(treeKey)) {
-            event.setCancelled(true);
-            return;
-        }
+        if (!activeTrees.add(treeKey)) return;
 
         try {
             if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, fullTree)) {
@@ -171,8 +147,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                 return;
             }
 
-            // TreeFall now owns this BlockBreakEvent. This line is deliberately
-            // reached only after a valid multi-block tree has been detected.
+            // Cancel vanilla breaking before starting any visual work.
             event.setCancelled(true);
             cooldowns.put(player.getUniqueId(), now);
 
@@ -211,22 +186,13 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
     }
 
     private boolean canBreakWholeTree(Player player, TreeBlocks tree) {
-        for (Block block : tree.logs()) {
-            if (!wgHook.canBreak(player, block)) return false;
-        }
-        for (Block block : tree.leaves()) {
-            if (!wgHook.canBreak(player, block)) return false;
-        }
+        for (Block block : tree.logs()) if (!wgHook.canBreak(player, block)) return false;
+        for (Block block : tree.leaves()) if (!wgHook.canBreak(player, block)) return false;
         return true;
     }
 
-    void releaseTree(String treeKey) {
-        if (treeKey != null) activeTrees.remove(treeKey);
-    }
-
-    int activeTreeCount() {
-        return activeTrees.size();
-    }
+    void releaseTree(String treeKey) { if (treeKey != null) activeTrees.remove(treeKey); }
+    int activeTreeCount() { return activeTrees.size(); }
 
     private void cleanupCooldowns(long now) {
         if (cooldowns.size() < 256) return;
