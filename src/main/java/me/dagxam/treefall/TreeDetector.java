@@ -14,51 +14,43 @@ public final class TreeDetector {
 
     private TreeDetector() {}
 
-    /**
-     * Finds the real base of a tree instead of only walking straight down from
-     * the block that was hit. This is important for branches and for trees
-     * grown from saplings whose lower canopy/branches can make the hit block
-     * no longer be part of a simple vertical column.
-     */
+    /** Finds the lowest supported log belonging to the tree hit by the player. */
     public static Block findTrunkBottom(Block start) {
         Block direct = walkDownLogs(start, 128);
         Block best = direct;
-        int bestHeight = measureVerticalSupport(direct);
+        int bestY = direct.getY();
 
-        // A hit may be on a branch. Search a small horizontal area while
-        // walking down and prefer the lowest candidate with a real trunk.
-        for (int dy = 0; dy <= 8; dy++) {
+        // A hit can be on a branch. Search the complete normal tree height,
+        // not only eight blocks, for a supported log that can be the trunk base.
+        int maxSearch = 64;
+        for (int dy = 0; dy <= maxSearch; dy++) {
             Block level = start.getRelative(0, -dy, 0);
-            for (int dx = -2; dx <= 2; dx++) {
-                for (int dz = -2; dz <= 2; dz++) {
+            for (int dx = -3; dx <= 3; dx++) {
+                for (int dz = -3; dz <= 3; dz++) {
                     Block candidate = level.getRelative(dx, 0, dz);
                     if (!Tag.LOGS.isTagged(candidate.getType())) continue;
                     if (!hasGroundOrTrunkSupport(candidate)) continue;
 
-                    int height = measureVerticalSupport(candidate);
-                    if (height >= bestHeight && candidate.getY() <= best.getY()) {
+                    if (candidate.getY() < bestY) {
                         best = candidate;
-                        bestHeight = height;
+                        bestY = candidate.getY();
                     }
                 }
             }
         }
 
-        // Explicitly handle a 2x2 trunk: return its lowest corner so all four
-        // logs are included when collection starts.
         if (is2x2Trunk(best)) {
             Material material = best.getType();
-            Block corner = best;
             for (int dx = -1; dx <= 0; dx++) {
                 for (int dz = -1; dz <= 0; dz++) {
                     Block candidate = best.getRelative(dx, 0, dz);
-                    if (isExact2x2At(candidate, material)
-                            && candidate.getY() <= corner.getY()) {
-                        corner = candidate;
+                    if (isExact2x2At(candidate, material)) {
+                        if (candidate.getX() < best.getX() || candidate.getZ() < best.getZ()) {
+                            best = candidate;
+                        }
                     }
                 }
             }
-            return corner;
         }
         return best;
     }
@@ -73,17 +65,6 @@ public final class TreeDetector {
         return current;
     }
 
-    private static int measureVerticalSupport(Block block) {
-        if (!Tag.LOGS.isTagged(block.getType())) return 0;
-        int height = 0;
-        Block current = block;
-        while (height < 128 && Tag.LOGS.isTagged(current.getType())) {
-            height++;
-            current = current.getRelative(0, 1, 0);
-        }
-        return height;
-    }
-
     private static boolean hasGroundOrTrunkSupport(Block block) {
         if (Tag.LOGS.isTagged(block.getRelative(0, -1, 0).getType())) return true;
         Material below = block.getRelative(0, -1, 0).getType();
@@ -91,17 +72,20 @@ public final class TreeDetector {
     }
 
     public static int measureTrunkHeight(Block bottom) {
-        return measureVerticalSupport(bottom);
+        int height = 0;
+        Block current = bottom;
+        while (height < 128 && Tag.LOGS.isTagged(current.getType())) {
+            height++;
+            current = current.getRelative(0, 1, 0);
+        }
+        return height;
     }
 
     public static boolean hasSideLogsAtBase(Block base) {
         if (is2x2Trunk(base)) return false;
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                if (dx == 0 && dz == 0) continue;
-                if (Tag.LOGS.isTagged(base.getRelative(dx, 0, dz).getType())) return true;
-            }
-        }
+        // Side logs are allowed when they are part of the same connected tree;
+        // the old hard rejection caused some naturally grown trees to fall back
+        // to vanilla one-block breaking.
         return false;
     }
 
@@ -144,8 +128,8 @@ public final class TreeDetector {
     }
 
     public static boolean hasCanopyAbove(Block top, Settings settings) {
-        int radius = 3;
-        int height = 6;
+        int radius = 4;
+        int height = 8;
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dy = 1; dy <= height; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
