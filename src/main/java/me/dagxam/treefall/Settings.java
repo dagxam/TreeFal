@@ -78,7 +78,7 @@ public final class Settings {
         maxTreeVerticalDistance = clampInt(c.getInt("tree-detection.max-vertical-distance", 48), 8, 128);
         animBlocksPerTick = clampInt(c.getInt("animation.blocks-per-tick", 1000), 1, 1000);
         animTickDelay = Math.max(1L, c.getLong("animation.tick-delay", 1L));
-        maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 1000), 10, 2000);
+        maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 5000), 10, 5000);
         animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 140L), 20L, 600L);
         adaptiveAnimation = c.getBoolean("animation.adaptive", false);
         busyAnimationThreshold = clampInt(c.getInt("animation.busy-threshold", 8), 1, 100);
