@@ -43,7 +43,7 @@ public final class TreeAnimator {
             return;
         }
 
-        // Capture the original block state BEFORE replacing blocks with air.
+        // Capture the real block data before the tree slice is removed.
         Map<Block, BlockData> originalData = new HashMap<>();
         for (Block block : allBlocks) {
             originalData.put(block, block.getBlockData().clone());
@@ -60,7 +60,7 @@ public final class TreeAnimator {
             visualBlocks.add(block);
         }
 
-        // Remove exactly the falling slice. Blocks below the cut remain untouched.
+        // Remove only the falling slice. Blocks below the cut stay untouched.
         for (Block block : allBlocks) {
             if (block.getType() != Material.AIR) {
                 block.setType(Material.AIR, false);
@@ -68,15 +68,19 @@ public final class TreeAnimator {
         }
 
         Vector direction = fallDirection.clone().setY(0);
-        if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
-        else direction.normalize();
+        if (direction.lengthSquared() < 0.001) {
+            direction = new Vector(0, 0, 1);
+        } else {
+            direction.normalize();
+        }
 
-        // Each tree gets a different horizontal direction. This is what makes
-        // trees fall left/right/forward/backward/diagonally instead of straight down.
+        // Give every tree a new horizontal direction: left/right/forward/back/diagonal.
         if (settings.randomFallDirection) {
             double randomAngle = random.nextDouble() * Math.PI * 2.0;
-            double x = direction.getX() * Math.cos(randomAngle) - direction.getZ() * Math.sin(randomAngle);
-            double z = direction.getX() * Math.sin(randomAngle) + direction.getZ() * Math.cos(randomAngle);
+            double cos = Math.cos(randomAngle);
+            double sin = Math.sin(randomAngle);
+            double x = direction.getX() * cos - direction.getZ() * sin;
+            double z = direction.getX() * sin + direction.getZ() * cos;
             direction = new Vector(x, 0, z).normalize();
         }
 
@@ -87,8 +91,10 @@ public final class TreeAnimator {
         for (Block block : visualBlocks) {
             BlockData data = originalData.get(block);
             if (data == null) continue;
+
             Vector relative = block.getLocation().add(0.5, 0.5, 0.5).toVector()
                     .subtract(pivot.toVector());
+
             FallingBlock entity = world.spawnFallingBlock(
                     block.getLocation().add(0.5, 0.5, 0.5), data);
             entity.setDropItem(false);
@@ -96,6 +102,7 @@ public final class TreeAnimator {
             entity.setHurtEntities(false);
             entity.setGravity(false);
             entity.setInvulnerable(true);
+            entity.setVelocity(new Vector(0, 0, 0));
             entity.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
             visuals.add(new VisualBlock(entity, relative));
         }
@@ -107,6 +114,7 @@ public final class TreeAnimator {
         final Vector finalAxis = axis;
         final Vector finalDirection = direction;
         final int duration = Math.max(12, settings.fallDurationTicks);
+        final int timeout = Math.max(duration + 5, (int) Math.min(Integer.MAX_VALUE, settings.animationTimeoutTicks));
 
         new BukkitRunnable() {
             private int tick;
@@ -116,35 +124,28 @@ public final class TreeAnimator {
             public void run() {
                 try {
                     tick++;
+
+                    // IMPORTANT: do not use getHighestBlockYAt() here.
+                    // It can see terrain/trees nearby and report a false collision on tick 1,
+                    // which makes the whole animation disappear immediately.
                     double progress = Math.min(1.0, tick / (double) duration);
                     double eased = progress * progress * (3.0 - 2.0 * progress);
                     double angle = Math.toRadians(settings.fallAngleDegrees) * eased;
                     double drift = settings.fallDistance * eased;
-                    double minY = Double.MAX_VALUE;
                     Location impact = pivot.clone().add(finalDirection.clone().multiply(drift));
 
                     for (VisualBlock visual : visuals) {
                         if (!visual.entity.isValid()) continue;
-                        Vector rotated = rotate(visual.relative, finalAxis, -angle);
-                        Vector position = pivot.toVector().add(rotated)
-                                .add(finalDirection.clone().multiply(drift));
-                        visual.entity.teleport(new Location(world,
-                                position.getX(), position.getY(), position.getZ()));
-                        minY = Math.min(minY, position.getY() - 0.5);
-                    }
 
-                    boolean hitGround = false;
-                    if (minY != Double.MAX_VALUE) {
-                        for (VisualBlock visual : visuals) {
-                            if (!visual.entity.isValid()) continue;
-                            Location loc = visual.entity.getLocation();
-                            int groundY = world.getHighestBlockYAt(loc.getBlockX(), loc.getBlockZ());
-                            if (loc.getY() - 0.5 <= groundY + 0.05) {
-                                impact = loc.clone();
-                                hitGround = true;
-                                break;
-                            }
-                        }
+                        Vector rotated = rotate(visual.relative, finalAxis, -angle);
+                        Vector position = pivot.toVector()
+                                .add(rotated)
+                                .add(finalDirection.clone().multiply(drift));
+
+                        Location target = new Location(world,
+                                position.getX(), position.getY(), position.getZ());
+                        visual.entity.teleport(target);
+                        visual.entity.setVelocity(new Vector(0, 0, 0));
                     }
 
                     if (settings.particles && tick % Math.max(1, settings.particleInterval) == 0) {
@@ -153,12 +154,14 @@ public final class TreeAnimator {
                     }
 
                     if (settings.sounds && tick % Math.max(1, settings.soundInterval) == 0
-                            && !hitGround && progress < 0.9) {
+                            && progress < 0.9) {
                         world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 0.45f,
                                 0.8f + random.nextFloat() * 0.25f);
                     }
 
-                    if (hitGround || progress >= 1.0) {
+                    // The animation always gets its full duration. Rewards are generated
+                    // only after the visual fall is complete, never on the first tick.
+                    if (progress >= 1.0 || tick >= timeout) {
                         if (!rewardsGiven) {
                             rewardsGiven = true;
                             giveRewards(plugin, world, impact, drops, player, toolSlot,
@@ -172,9 +175,7 @@ public final class TreeAnimator {
                             }
                         }
 
-                        for (VisualBlock visual : visuals) {
-                            if (visual.entity.isValid()) visual.entity.remove();
-                        }
+                        removeVisuals();
                         plugin.releaseTree(treeKey);
                         cancel();
                     }
@@ -184,13 +185,17 @@ public final class TreeAnimator {
                         giveRewards(plugin, world, pivot, drops, player, toolSlot,
                                 toolSnapshot, falling, random);
                     }
-                    for (VisualBlock visual : visuals) {
-                        if (visual.entity.isValid()) visual.entity.remove();
-                    }
+                    removeVisuals();
                     plugin.releaseTree(treeKey);
                     plugin.getLogger().warning("TreeFall animation recovered from an error: "
                             + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
                     cancel();
+                }
+            }
+
+            private void removeVisuals() {
+                for (VisualBlock visual : visuals) {
+                    if (visual.entity.isValid()) visual.entity.remove();
                 }
             }
         }.runTaskTimer(plugin, 0L, Math.max(1L, settings.animTickDelay));
