@@ -35,13 +35,8 @@ public final class TreeDetector {
         return height;
     }
 
-    /**
-     * Reject only genuine side-log structures at the base. A valid 2x2 trunk is handled
-     * separately and is never rejected here.
-     */
     public static boolean hasSideLogsAtBase(Block base) {
         if (is2x2Trunk(base)) return false;
-
         for (int dx = -1; dx <= 1; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
                 if (dx == 0 && dz == 0) continue;
@@ -51,11 +46,9 @@ public final class TreeDetector {
         return false;
     }
 
-    /** Detect any 2x2 square of identical log blocks, without hard-coding tree species. */
     public static boolean is2x2Trunk(Block base) {
         Material material = base.getType();
         if (!Tag.LOGS.isTagged(material)) return false;
-
         for (int ox = -1; ox <= 0; ox++) {
             for (int oz = -1; oz <= 0; oz++) {
                 if (isExact2x2At(base.getRelative(ox, 0, oz), material)) return true;
@@ -67,7 +60,6 @@ public final class TreeDetector {
     public static String getTreeKey(Block base) {
         int x = base.getX();
         int z = base.getZ();
-
         if (is2x2Trunk(base)) {
             Material material = base.getType();
             for (int dx = -1; dx <= 0; dx++) {
@@ -80,7 +72,6 @@ public final class TreeDetector {
                 }
             }
         }
-
         return base.getWorld().getUID() + ":" + x + ":" + base.getY() + ":" + z;
     }
 
@@ -93,23 +84,20 @@ public final class TreeDetector {
         return true;
     }
 
-    public static boolean hasCanopyAbove(Block top) {
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dy = 1; dy <= 5; dy++) {
-                for (int dz = -2; dz <= 2; dz++) {
-                    if (isLeafLike(top.getRelative(dx, dy, dz))) return true;
+    public static boolean hasCanopyAbove(Block top, Settings settings) {
+        int radius = 2;
+        int height = 5;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = 1; dy <= height; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (isLeafLike(top.getRelative(dx, dy, dz), settings)) return true;
                 }
             }
         }
         return false;
     }
 
-    /**
-     * Collects a connected tree. Logs use face connectivity so nearby trunks do not get
-     * joined diagonally. Leaves use full 26-neighbour connectivity only after a real log/leaf
-     * connection has been found.
-     */
-    public static TreeBlocks collectTree(Block start, int limit) {
+    public static TreeBlocks collectTree(Block start, int limit, Settings settings) {
         Set<Block> logs = new HashSet<>();
         Set<Block> leaves = new HashSet<>();
         Set<Block> visited = new HashSet<>();
@@ -123,18 +111,14 @@ public final class TreeDetector {
                     Block candidate = start.getRelative(dx, 0, dz);
                     if (isExact2x2At(candidate, material)) {
                         for (int ox = 0; ox <= 1; ox++) {
-                            for (int oz = 0; oz <= 1; oz++) {
-                                Block corner = candidate.getRelative(ox, 0, oz);
-                                if (!visited.contains(corner)) queue.add(corner);
-                            }
-                        }
+                            for (int oz = 0; oz <= 1; oz++) queue.add(candidate.getRelative(ox, 0, oz));
                     }
                 }
             }
         }
 
-        final int maxHorizDist = 12;
-        final int maxVertDist = 48;
+        int maxHorizDist = settings.maxTreeHorizontalDistance;
+        int maxVertDist = settings.maxTreeVerticalDistance;
         int startX = start.getX();
         int startY = start.getY();
         int startZ = start.getZ();
@@ -142,24 +126,19 @@ public final class TreeDetector {
         while (!queue.isEmpty() && visited.size() < limit) {
             Block block = queue.poll();
             if (!visited.add(block)) continue;
-
             if (Math.abs(block.getX() - startX) > maxHorizDist
                     || Math.abs(block.getZ() - startZ) > maxHorizDist
-                    || Math.abs(block.getY() - startY) > maxVertDist) {
-                continue;
-            }
+                    || Math.abs(block.getY() - startY) > maxVertDist) continue;
 
             boolean log = Tag.LOGS.isTagged(block.getType());
-            boolean leaf = isLeafLike(block);
+            boolean leaf = isLeafLike(block, settings);
             if (log) logs.add(block);
             else if (leaf) leaves.add(block);
             else continue;
 
-            int min = -1;
-            int max = 1;
-            for (int dx = min; dx <= max; dx++) {
-                for (int dy = min; dy <= max; dy++) {
-                    for (int dz = min; dz <= max; dz++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dz = -1; dz <= 1; dz++) {
                         if (dx == 0 && dy == 0 && dz == 0) continue;
                         if (log && Math.abs(dx) + Math.abs(dy) + Math.abs(dz) != 1) continue;
                         Block next = block.getRelative(dx, dy, dz);
@@ -168,13 +147,12 @@ public final class TreeDetector {
                 }
             }
         }
-
         return new TreeBlocks(logs, leaves, !queue.isEmpty());
     }
 
-    static boolean isLeafLike(Block block) {
+    static boolean isLeafLike(Block block, Settings settings) {
         BlockData data = block.getBlockData();
-        if (data instanceof Leaves leaves) return !leaves.isPersistent();
+        if (data instanceof Leaves leaves) return !settings.ignorePersistentLeaves || !leaves.isPersistent();
         return Tag.LEAVES.isTagged(block.getType());
     }
 
