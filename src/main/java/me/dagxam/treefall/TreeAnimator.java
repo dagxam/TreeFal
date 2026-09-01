@@ -51,7 +51,6 @@ public final class TreeAnimator {
 
         int maxAnimated = Math.min(allBlocks.size(), settings.maxFallingBlocks);
         List<Block> visualBlocks = new ArrayList<>(maxAnimated);
-        // Logs always get animation priority. Leaves use the remaining slots.
         for (Block block : falling.logs()) {
             if (visualBlocks.size() >= maxAnimated) break;
             visualBlocks.add(block);
@@ -61,8 +60,7 @@ public final class TreeAnimator {
             visualBlocks.add(block);
         }
 
-        // Remove exactly the falling slice. Blocks below the cut were never in
-        // 'falling' and therefore remain completely untouched.
+        // Remove exactly the falling slice. Blocks below the cut remain untouched.
         for (Block block : allBlocks) {
             if (block.getType() != Material.AIR) {
                 block.setType(Material.AIR, false);
@@ -72,6 +70,15 @@ public final class TreeAnimator {
         Vector direction = fallDirection.clone().setY(0);
         if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
         else direction.normalize();
+
+        // Each tree gets a different horizontal direction. This is what makes
+        // trees fall left/right/forward/backward/diagonally instead of straight down.
+        if (settings.randomFallDirection) {
+            double randomAngle = random.nextDouble() * Math.PI * 2.0;
+            double x = direction.getX() * Math.cos(randomAngle) - direction.getZ() * Math.sin(randomAngle);
+            double z = direction.getX() * Math.sin(randomAngle) + direction.getZ() * Math.cos(randomAngle);
+            direction = new Vector(x, 0, z).normalize();
+        }
 
         Vector axis = new Vector(-direction.getZ(), 0, direction.getX()).normalize();
         Location pivot = center.clone();
@@ -126,8 +133,6 @@ public final class TreeAnimator {
                         minY = Math.min(minY, position.getY() - 0.5);
                     }
 
-                    // The animation ends when the lowest visual block reaches
-                    // the actual world surface, or at the configured duration.
                     boolean hitGround = false;
                     if (minY != Double.MAX_VALUE) {
                         for (VisualBlock visual : visuals) {
