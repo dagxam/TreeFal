@@ -21,7 +21,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Vector;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -101,9 +100,6 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         Entity entity = event.getEntity();
         if (entity instanceof FallingBlock fallingBlock
                 && fallingBlock.getScoreboardTags().contains(FALLING_TAG)) {
-            // Visual TreeFall blocks must never place a real block. Do not remove
-            // the entity here: TreeAnimator detects the landing on the next tick,
-            // then performs the cleanup and releases the tree.
             event.setCancelled(true);
         }
     }
@@ -134,13 +130,12 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
 
         boolean hasAxe = player.getInventory().getItemInMainHand().getType().name().endsWith("_AXE");
         if (settings.requireAxeForBig && !hasAxe && trunkHeight > 6) return;
-        if (TreeDetector.hasSideLogsAtBase(trunkBottom)) return;
-
-        Block top = trunkBottom.getRelative(0, trunkHeight - 1, 0);
-        if (!TreeDetector.hasCanopyAbove(top, settings)) return;
 
         String treeKey = TreeDetector.getTreeKey(trunkBottom);
-        if (!activeTrees.add(treeKey)) return;
+        if (!activeTrees.add(treeKey)) {
+            event.setCancelled(true);
+            return;
+        }
 
         try {
             int firstTryLimit = settings.maxBlocks;
@@ -153,28 +148,28 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                 fullTree = TreeDetector.collectTree(trunkBottom, 5000, settings);
             }
 
-            if (fullTree.truncated()) {
-                activeTrees.remove(treeKey);
-                getLogger().warning("TreeFall skipped an oversized or unusually connected tree at "
-                        + cutBlock.getWorld().getName() + " " + cutBlock.getX() + ", "
-                        + cutBlock.getY() + ", " + cutBlock.getZ());
-                return;
-            }
-            if (fullTree.logs().isEmpty()) {
+            if (fullTree.truncated() || fullTree.logs().isEmpty()) {
                 activeTrees.remove(treeKey);
                 return;
             }
 
-            // Always animate the complete detected tree, regardless of which
-            // trunk/branch block the player actually hit.
-            TreeBlocks falling = fullTree;
+            // A real tree must contain the trunk and either leaves or additional
+            // logs. This avoids requiring a perfect canopy shape and fixes trees
+            // grown from saplings with unusual vanilla branch layouts.
+            if (fullTree.leaves().isEmpty() && fullTree.logs().size() <= 1) {
+                activeTrees.remove(treeKey);
+                return;
+            }
 
-            if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, falling)) {
+            if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, fullTree)) {
                 activeTrees.remove(treeKey);
                 player.sendMessage(settings.worldGuardErrorMessage);
                 return;
             }
 
+            // Cancel vanilla breaking before starting the visual sequence.
+            // The original block and the complete detected tree are then owned
+            // by TreeFall, so Minecraft cannot break just one log underneath us.
             event.setCancelled(true);
             cooldowns.put(player.getUniqueId(), now);
 
@@ -183,14 +178,14 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             String season = rsHook != null ? rsHook.getSeasonName(world) : null;
             ItemStack toolSnapshot = player.getInventory().getItemInMainHand().clone();
             TreeDropCalculator.DropResult drops = TreeDropCalculator.calculate(
-                    this, falling, season, settings, toolSnapshot);
+                    this, fullTree, season, settings, toolSnapshot);
 
             int toolSlot = player.getInventory().getHeldItemSlot();
             Vector fallDirection = player.getLocation().getDirection().setY(0);
             if (fallDirection.lengthSquared() < 0.001) fallDirection = new Vector(0, 0, 1);
             else fallDirection.normalize();
 
-            TreeAnimator.play(this, world, center, falling, drops, player,
+            TreeAnimator.play(this, world, center, fullTree, drops, player,
                     toolSlot, toolSnapshot, treeKey, fallDirection);
         } catch (Throwable throwable) {
             activeTrees.remove(treeKey);
