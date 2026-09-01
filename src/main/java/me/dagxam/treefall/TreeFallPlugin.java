@@ -101,8 +101,10 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         Entity entity = event.getEntity();
         if (entity instanceof FallingBlock fallingBlock
                 && fallingBlock.getScoreboardTags().contains(FALLING_TAG)) {
+            // Visual TreeFall blocks must never place a real block. Do not remove
+            // the entity here: TreeAnimator detects the landing on the next tick,
+            // then performs the cleanup and releases the tree.
             event.setCancelled(true);
-            fallingBlock.remove();
         }
     }
 
@@ -163,13 +165,10 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                 return;
             }
 
-            TreeBlocks falling = sliceAboveY(fullTree, cutBlock.getY());
-            if (falling.logs().isEmpty()) {
-                activeTrees.remove(treeKey);
-                return;
-            }
+            // Always animate the complete detected tree, regardless of which
+            // trunk/branch block the player actually hit.
+            TreeBlocks falling = fullTree;
 
-            // Check every affected block before cancelling the original break event.
             if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, falling)) {
                 activeTrees.remove(treeKey);
                 player.sendMessage(settings.worldGuardErrorMessage);
@@ -180,7 +179,7 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             cooldowns.put(player.getUniqueId(), now);
 
             World world = cutBlock.getWorld();
-            Location center = cutBlock.getLocation();
+            Location center = trunkBottom.getLocation();
             String season = rsHook != null ? rsHook.getSeasonName(world) : null;
             ItemStack toolSnapshot = player.getInventory().getItemInMainHand().clone();
             TreeDropCalculator.DropResult drops = TreeDropCalculator.calculate(
@@ -222,13 +221,5 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         if (cooldowns.size() < 256) return;
         cooldowns.entrySet().removeIf(entry ->
                 now - entry.getValue() > Math.max(settings.cooldownMs * 4L, 5000L));
-    }
-
-    private TreeBlocks sliceAboveY(TreeBlocks tree, int cutY) {
-        Set<Block> logs = new HashSet<>();
-        Set<Block> leaves = new HashSet<>();
-        for (Block block : tree.logs()) if (block.getY() >= cutY) logs.add(block);
-        for (Block block : tree.leaves()) if (block.getY() >= cutY) leaves.add(block);
-        return new TreeBlocks(logs, leaves);
     }
 }
