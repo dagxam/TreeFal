@@ -124,10 +124,36 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
 
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
-        Block trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
-        int trunkHeight = TreeDetector.measureTrunkHeight(trunkBottom);
-        if (trunkHeight < settings.minTrunkHeight) return;
+        // IMPORTANT: build the tree from the block actually hit, not only from
+        // the guessed trunk bottom. A branch hit must still discover the complete
+        // sapling-grown tree. The bottom is used only for the tree identity and
+        // animation center after the structure has been successfully detected.
+        TreeBlocks fullTree;
+        Block trunkBottom;
+        try {
+            fullTree = collectTreeWithRetry(cutBlock);
+            if (fullTree.truncated() || fullTree.logs().isEmpty()) return;
 
+            // A valid TreeFall target needs more than the single block the player
+            // hit. Leaves are enough to identify a small natural tree, while a
+            // multi-log trunk/branch is also valid without a perfect canopy.
+            if (fullTree.logs().size() < 2 && fullTree.leaves().isEmpty()) return;
+
+            trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
+            if (!fullTree.logs().contains(trunkBottom)) {
+                // The broad base search can find an unrelated nearby tree. In that
+                // case use the lowest log belonging to this exact detected tree.
+                trunkBottom = fullTree.logs().stream()
+                        .min(java.util.Comparator.comparingInt(Block::getY))
+                        .orElse(cutBlock);
+            }
+        } catch (Throwable throwable) {
+            getLogger().warning("TreeFall detector rejected a log safely: "
+                    + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+            return;
+        }
+
+        int trunkHeight = TreeDetector.measureTrunkHeight(trunkBottom);
         boolean hasAxe = player.getInventory().getItemInMainHand().getType().name().endsWith("_AXE");
         if (settings.requireAxeForBig && !hasAxe && trunkHeight > 6) return;
 
@@ -138,38 +164,14 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
         }
 
         try {
-            int firstTryLimit = settings.maxBlocks;
-            TreeBlocks fullTree = TreeDetector.collectTree(trunkBottom, firstTryLimit, settings);
-            if (fullTree.truncated()) {
-                fullTree = TreeDetector.collectTree(trunkBottom,
-                        Math.min(5000, Math.max(firstTryLimit, 2200)), settings);
-            }
-            if (fullTree.truncated() && firstTryLimit < 5000) {
-                fullTree = TreeDetector.collectTree(trunkBottom, 5000, settings);
-            }
-
-            if (fullTree.truncated() || fullTree.logs().isEmpty()) {
-                activeTrees.remove(treeKey);
-                return;
-            }
-
-            // A real tree must contain the trunk and either leaves or additional
-            // logs. This avoids requiring a perfect canopy shape and fixes trees
-            // grown from saplings with unusual vanilla branch layouts.
-            if (fullTree.leaves().isEmpty() && fullTree.logs().size() <= 1) {
-                activeTrees.remove(treeKey);
-                return;
-            }
-
             if (worldGuardPresent && wgHook != null && !canBreakWholeTree(player, fullTree)) {
                 activeTrees.remove(treeKey);
                 player.sendMessage(settings.worldGuardErrorMessage);
                 return;
             }
 
-            // Cancel vanilla breaking before starting the visual sequence.
-            // The original block and the complete detected tree are then owned
-            // by TreeFall, so Minecraft cannot break just one log underneath us.
+            // From this point TreeFall owns the block break. Vanilla must never
+            // get a chance to remove only the originally hit log.
             event.setCancelled(true);
             cooldowns.put(player.getUniqueId(), now);
 
@@ -192,6 +194,19 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             getLogger().severe("TreeFall failed safely: " + throwable.getClass().getSimpleName()
                     + ": " + throwable.getMessage());
         }
+    }
+
+    private TreeBlocks collectTreeWithRetry(Block cutBlock) {
+        int firstTryLimit = settings.maxBlocks;
+        TreeBlocks tree = TreeDetector.collectTree(cutBlock, firstTryLimit, settings);
+        if (tree.truncated()) {
+            tree = TreeDetector.collectTree(cutBlock,
+                    Math.min(5000, Math.max(firstTryLimit, 2200)), settings);
+        }
+        if (tree.truncated() && firstTryLimit < 5000) {
+            tree = TreeDetector.collectTree(cutBlock, 5000, settings);
+        }
+        return tree;
     }
 
     private boolean canBreakWholeTree(Player player, TreeBlocks tree) {
