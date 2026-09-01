@@ -23,10 +23,16 @@ public final class Settings {
     final String bypassPermission;
     final Set<String> worldBlacklist;
 
+    final boolean ignorePersistentLeaves;
+    final int maxTreeHorizontalDistance;
+    final int maxTreeVerticalDistance;
+
     final int animBlocksPerTick;
     final long animTickDelay;
     final int maxFallingBlocks;
     final long animationTimeoutTicks;
+    final boolean adaptiveAnimation;
+    final int busyAnimationThreshold;
     final boolean directionalFall;
     final double horizontalVelocity;
     final double upwardVelocity;
@@ -36,12 +42,15 @@ public final class Settings {
     final boolean sounds;
     final int soundInterval;
 
+    final boolean useFortune;
+    final boolean useSilkTouch;
     final double stickChance;
     final double saplingChance;
 
     final String noPermissionMessage;
     final String reloadMessage;
     final String usageMessage;
+    final String worldGuardErrorMessage;
 
     Settings(JavaPlugin plugin) {
         plugin.reloadConfig();
@@ -58,13 +67,18 @@ public final class Settings {
         maxBlocks = clampInt(c.getInt("max-blocks", 512), 64, 5000);
         cooldownMs = Math.max(0L, c.getLong("cooldown-ms", 500L));
         bypassPermission = c.getString("authorization.bypass-permission", "treefall.bypass");
-
         worldBlacklist = loadWorldBlacklist(c.getStringList("world-blacklist"));
+
+        ignorePersistentLeaves = c.getBoolean("tree-detection.ignore-persistent-leaves", true);
+        maxTreeHorizontalDistance = clampInt(c.getInt("tree-detection.max-horizontal-distance", 12), 4, 32);
+        maxTreeVerticalDistance = clampInt(c.getInt("tree-detection.max-vertical-distance", 48), 8, 128);
 
         animBlocksPerTick = clampInt(c.getInt("animation.blocks-per-tick", 18), 1, 100);
         animTickDelay = Math.max(1L, c.getLong("animation.tick-delay", 1L));
         maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 80), 10, 300);
         animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 100L), 20L, 600L);
+        adaptiveAnimation = c.getBoolean("animation.adaptive", true);
+        busyAnimationThreshold = clampInt(c.getInt("animation.busy-threshold", 8), 1, 100);
         directionalFall = c.getBoolean("animation.directional-fall", true);
         horizontalVelocity = clampDouble(c.getDouble("animation.horizontal-velocity", 0.12), 0.0, 1.0);
         upwardVelocity = clampDouble(c.getDouble("animation.upward-velocity", 0.02), 0.0, 0.5);
@@ -74,12 +88,16 @@ public final class Settings {
         sounds = c.getBoolean("animation.sounds", true);
         soundInterval = clampInt(c.getInt("animation.sound-interval", 8), 1, 40);
 
+        useFortune = c.getBoolean("drop.use-fortune", true);
+        useSilkTouch = c.getBoolean("drop.use-silk-touch", true);
         stickChance = clamp01(c.getDouble("drop.chance.stick", 0.02));
         saplingChance = clamp01(c.getDouble("drop.chance.sapling", 0.05));
 
         noPermissionMessage = c.getString("messages.no-permission", "§cУ вас нет прав.");
         reloadMessage = c.getString("messages.reload", "§aКонфигурация TreeFall перезагружена.");
         usageMessage = c.getString("messages.usage", "§eИспользование: /treefall reload");
+        worldGuardErrorMessage = c.getString("messages.worldguard-error",
+                "§cНе удалось проверить защиту WorldGuard. TreeFall отменён.");
     }
 
     boolean isWorldBlacklisted(String worldName) {
@@ -90,9 +108,7 @@ public final class Settings {
         if (worlds == null || worlds.isEmpty()) return Collections.emptySet();
         Set<String> result = new HashSet<>();
         for (String world : worlds) {
-            if (world != null && !world.isBlank()) {
-                result.add(world.trim().toLowerCase(Locale.ROOT));
-            }
+            if (world != null && !world.isBlank()) result.add(world.trim().toLowerCase(Locale.ROOT));
         }
         return Collections.unmodifiableSet(result);
     }
