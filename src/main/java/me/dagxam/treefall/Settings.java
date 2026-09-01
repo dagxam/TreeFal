@@ -9,9 +9,7 @@ import java.util.Locale;
 import java.util.Set;
 
 public final class Settings {
-
     static final int BIG_TREE_LEAVES = 160;
-
     final boolean enabled;
     final boolean requirePermission;
     final boolean sneakToDisable;
@@ -22,11 +20,9 @@ public final class Settings {
     final long cooldownMs;
     final String bypassPermission;
     final Set<String> worldBlacklist;
-
     final boolean ignorePersistentLeaves;
     final int maxTreeHorizontalDistance;
     final int maxTreeVerticalDistance;
-
     final int animBlocksPerTick;
     final long animTickDelay;
     final int maxFallingBlocks;
@@ -44,7 +40,6 @@ public final class Settings {
     final int fallDurationTicks;
     final double fallAngleDegrees;
     final double fallDistance;
-
     final boolean useFortune;
     final boolean useSilkTouch;
     final boolean leavesEnabled;
@@ -57,7 +52,6 @@ public final class Settings {
     final int fruitsAmount;
     final double stickChance;
     final double saplingChance;
-
     final String noPermissionMessage;
     final String reloadMessage;
     final String usageMessage;
@@ -66,25 +60,20 @@ public final class Settings {
     Settings(JavaPlugin plugin) {
         plugin.reloadConfig();
         var c = plugin.getConfig();
-
         enabled = c.getBoolean("enabled", true);
-        requirePermission = c.getBoolean("authorization.require-permission",
-                c.getBoolean("require-permission", true));
+        requirePermission = c.getBoolean("authorization.require-permission", c.getBoolean("require-permission", true));
         sneakToDisable = c.getBoolean("sneak-to-disable", false);
         damageTool = c.getBoolean("damage-tool", true);
         requireAxeForBig = c.getBoolean("require-axe-for-big", false);
-
         minTrunkHeight = clampInt(c.getInt("min-trunk-height", 1), 1, 128);
         maxBlocks = clampInt(c.getInt("max-blocks", 512), 64, 5000);
         cooldownMs = Math.max(0L, c.getLong("cooldown-ms", 500L));
         bypassPermission = c.getString("authorization.bypass-permission", "treefall.bypass");
         worldBlacklist = loadWorldBlacklist(c.getStringList("world-blacklist"));
-
         ignorePersistentLeaves = c.getBoolean("tree-detection.ignore-persistent-leaves", true);
         maxTreeHorizontalDistance = clampInt(c.getInt("tree-detection.max-horizontal-distance", 12), 4, 32);
         maxTreeVerticalDistance = clampInt(c.getInt("tree-detection.max-vertical-distance", 48), 8, 128);
-
-        animBlocksPerTick = clampInt(c.getInt("animation.blocks-per-tick", 18), 1, 100);
+        animBlocksPerTick = clampInt(c.getInt("animation.blocks-per-tick", 1000), 1, 1000);
         animTickDelay = Math.max(1L, c.getLong("animation.tick-delay", 1L));
         maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 1000), 10, 2000);
         animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 140L), 20L, 600L);
@@ -101,53 +90,27 @@ public final class Settings {
         fallDurationTicks = clampInt(c.getInt("animation.fall-duration-ticks", 24), 8, 100);
         fallAngleDegrees = clampDouble(c.getDouble("animation.fall-angle-degrees", 88.0), 45.0, 90.0);
         fallDistance = clampDouble(c.getDouble("animation.fall-distance", 0.6), 0.0, 3.0);
-
         useFortune = c.getBoolean("drop.use-fortune", true);
         useSilkTouch = c.getBoolean("drop.use-silk-touch", true);
         leavesEnabled = c.getBoolean("drop.leaves.enabled", true);
         leavesAmount = clampInt(c.getInt("drop.leaves.amount", 10), 0, 64);
         sticksEnabled = c.getBoolean("drop.sticks.enabled", true);
-        sticksAmount = clampInt(c.getInt("drop.sticks.amount", 3), 0, 64);
+        sticksAmount = clampInt(c.getInt("drop.sticks.amount", 7), 0, 64);
         saplingsEnabled = c.getBoolean("drop.saplings.enabled", true);
-        saplingsAmount = clampInt(c.getInt("drop.saplings.amount", 1), 0, 64);
+        saplingsAmount = clampInt(c.getInt("drop.saplings.amount", 2), 0, 64);
         fruitsEnabled = c.getBoolean("drop.fruits.enabled", true);
-        fruitsAmount = clampInt(c.getInt("drop.fruits.amount", 1), 0, 64);
+        fruitsAmount = clampInt(c.getInt("drop.fruits.amount", 2), 0, 64);
         stickChance = clamp01(c.getDouble("drop.chance.stick", 0.02));
         saplingChance = clamp01(c.getDouble("drop.chance.sapling", 0.05));
-
         noPermissionMessage = c.getString("messages.no-permission", "§cУ вас нет прав.");
         reloadMessage = c.getString("messages.reload", "§aКонфигурация TreeFall перезагружена.");
         usageMessage = c.getString("messages.usage", "§eИспользование: /treefall reload");
-        worldGuardErrorMessage = c.getString("messages.worldguard-error",
-                "§cНе удалось проверить защиту WorldGuard. TreeFall отменён.");
+        worldGuardErrorMessage = c.getString("messages.worldguard-error", "§cНе удалось проверить защиту WorldGuard. TreeFall отменён.");
     }
-
-    boolean isWorldBlacklisted(String worldName) {
-        return worldBlacklist.contains(worldName.toLowerCase(Locale.ROOT));
-    }
-
-    private static Set<String> loadWorldBlacklist(List<String> worlds) {
-        if (worlds == null || worlds.isEmpty()) return Collections.emptySet();
-        Set<String> result = new HashSet<>();
-        for (String world : worlds) {
-            if (world != null && !world.isBlank()) result.add(world.trim().toLowerCase(Locale.ROOT));
-        }
-        return Collections.unmodifiableSet(result);
-    }
-
-    private static int clampInt(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static long clampLong(long value, long min, long max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static double clampDouble(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static double clamp01(double value) {
-        return clampDouble(value, 0.0, 1.0);
-    }
+    boolean isWorldBlacklisted(String worldName) { return worldBlacklist.contains(worldName.toLowerCase(Locale.ROOT)); }
+    private static Set<String> loadWorldBlacklist(List<String> worlds) { if (worlds == null || worlds.isEmpty()) return Collections.emptySet(); Set<String> result = new HashSet<>(); for (String world : worlds) if (world != null && !world.isBlank()) result.add(world.trim().toLowerCase(Locale.ROOT)); return Collections.unmodifiableSet(result); }
+    private static int clampInt(int value, int min, int max) { return Math.max(min, Math.min(max, value)); }
+    private static long clampLong(long value, long min, long max) { return Math.max(min, Math.min(max, value)); }
+    private static double clampDouble(double value, double min, double max) { return Math.max(min, Math.min(max, value)); }
+    private static double clamp01(double value) { return clampDouble(value, 0.0, 1.0); }
 }
