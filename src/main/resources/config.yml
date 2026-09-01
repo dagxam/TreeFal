@@ -19,9 +19,6 @@ tree-detection:
   max-horizontal-distance: 12
   max-vertical-distance: 48
 
-# Smooth synchronized fall animation.
-# All detected tree blocks are removed from the world immediately and represented
-# by visual FallingBlock entities. They rotate together and land as one tree.
 animation:
   max-falling-blocks: 1000
   blocks-per-tick: 1000
@@ -45,22 +42,29 @@ drop:
   use-silk-touch: true
   use-fortune: true
 
-  # Exact quantities created when the tree hits the ground.
-  # Logs are always dropped according to the number of detected log blocks.
+  # Сколько блоков листьев выдавать после падения дерева.
+  # Листья выдаются как настоящие блоки листьев.
   leaves:
     enabled: true
     amount: 10
+
+  # Случайное количество в указанном диапазоне.
   sticks:
     enabled: true
-    amount: 3
+    min: 4
+    max: 10
+
   saplings:
     enabled: true
-    amount: 1
+    min: 1
+    max: 3
+
   fruits:
     enabled: true
-    amount: 1
+    min: 1
+    max: 3
 
-  # Kept for compatibility with older configurations.
+  # Старые параметры оставлены для совместимости.
   chance:
     stick: 0.02
     sapling: 0.05
