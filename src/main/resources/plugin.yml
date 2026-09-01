@@ -1,5 +1,5 @@
 name: TreeFall
-version: '1.6.0'
+version: '1.6.1'
 main: me.dagxam.treefall.TreeFallPlugin
 api-version: '1.21.1'
 description: Realistic tree felling with safe falling animation
@@ -17,8 +17,8 @@ permissions:
     description: Allows using tree-fall mechanic
     default: true
   treefall.bypass:
-    description: Bypasses the TreeFall mechanic
-    default: op
+    description: Explicitly bypasses the TreeFall mechanic
+    default: false
   treefall.admin:
     description: Allows reloading TreeFall configuration
     default: op
