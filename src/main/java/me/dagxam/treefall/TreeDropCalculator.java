@@ -7,6 +7,7 @@ import org.bukkit.inventory.ItemStack;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 public final class TreeDropCalculator {
     private TreeDropCalculator() {}
@@ -40,23 +41,27 @@ public final class TreeDropCalculator {
             logs.merge(block.getType(), 1, Integer::sum);
         }
 
-        // Leaves are dropped as real leaf blocks, exactly like the tree itself.
-        // With Silk Touch every detected leaf is preserved.
         Map<Material, Integer> leaves = new HashMap<>();
         if (silkTouch) {
+            // Silk Touch preserves every leaf block from the fallen tree.
             for (Block block : falling.leaves()) {
                 leaves.merge(block.getType(), 1, Integer::sum);
             }
         } else if (settings.leavesEnabled && settings.leavesAmount > 0 && leafSample != null) {
+            // Normal mode also gives actual leaf blocks, with the configured amount.
             int amount = applyFortune(settings.leavesAmount, fortune);
             leaves.put(leafSample, amount);
         }
 
-        int sticks = settings.sticksEnabled ? settings.sticksAmount : 0;
-        int saplings = settings.saplingsEnabled && saplingType != null ? settings.saplingsAmount : 0;
-        int fruits = settings.fruitsEnabled && fruitType != null ? settings.fruitsAmount : 0;
+        int sticks = settings.sticksEnabled
+                ? randomAmount(settings.sticksMin, settings.sticksMax) : 0;
+        int saplings = settings.saplingsEnabled && saplingType != null
+                ? randomAmount(settings.saplingsMin, settings.saplingsMax) : 0;
+        int fruits = settings.fruitsEnabled && fruitType != null
+                ? randomAmount(settings.fruitsMin, settings.fruitsMax) : 0;
 
         if (silkTouch) {
+            // Silk Touch gives the physical leaves instead of bonus leaf drops.
             sticks = 0;
             saplings = 0;
             fruits = 0;
@@ -67,6 +72,11 @@ public final class TreeDropCalculator {
         }
 
         return new DropResult(leaves, logs, sticks, saplingType, saplings, fruitType, fruits);
+    }
+
+    private static int randomAmount(int min, int max) {
+        if (max <= min) return Math.max(0, min);
+        return ThreadLocalRandom.current().nextInt(min, max + 1);
     }
 
     private static int applyFortune(int amount, int fortune) {
