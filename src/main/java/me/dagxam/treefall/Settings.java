@@ -41,9 +41,20 @@ public final class Settings {
     final int particleInterval;
     final boolean sounds;
     final int soundInterval;
+    final int fallDurationTicks;
+    final double fallAngleDegrees;
+    final double fallDistance;
 
     final boolean useFortune;
     final boolean useSilkTouch;
+    final boolean leavesEnabled;
+    final int leavesAmount;
+    final boolean sticksEnabled;
+    final int sticksAmount;
+    final boolean saplingsEnabled;
+    final int saplingsAmount;
+    final boolean fruitsEnabled;
+    final int fruitsAmount;
     final double stickChance;
     final double saplingChance;
 
@@ -59,11 +70,11 @@ public final class Settings {
         enabled = c.getBoolean("enabled", true);
         requirePermission = c.getBoolean("authorization.require-permission",
                 c.getBoolean("require-permission", true));
-        sneakToDisable = c.getBoolean("sneak-to-disable", true);
+        sneakToDisable = c.getBoolean("sneak-to-disable", false);
         damageTool = c.getBoolean("damage-tool", true);
         requireAxeForBig = c.getBoolean("require-axe-for-big", false);
 
-        minTrunkHeight = clampInt(c.getInt("min-trunk-height", 4), 3, 128);
+        minTrunkHeight = clampInt(c.getInt("min-trunk-height", 1), 1, 128);
         maxBlocks = clampInt(c.getInt("max-blocks", 512), 64, 5000);
         cooldownMs = Math.max(0L, c.getLong("cooldown-ms", 500L));
         bypassPermission = c.getString("authorization.bypass-permission", "treefall.bypass");
@@ -75,9 +86,9 @@ public final class Settings {
 
         animBlocksPerTick = clampInt(c.getInt("animation.blocks-per-tick", 18), 1, 100);
         animTickDelay = Math.max(1L, c.getLong("animation.tick-delay", 1L));
-        maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 80), 10, 300);
-        animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 100L), 20L, 600L);
-        adaptiveAnimation = c.getBoolean("animation.adaptive", true);
+        maxFallingBlocks = clampInt(c.getInt("animation.max-falling-blocks", 1000), 10, 2000);
+        animationTimeoutTicks = clampLong(c.getLong("animation.timeout-ticks", 140L), 20L, 600L);
+        adaptiveAnimation = c.getBoolean("animation.adaptive", false);
         busyAnimationThreshold = clampInt(c.getInt("animation.busy-threshold", 8), 1, 100);
         directionalFall = c.getBoolean("animation.directional-fall", true);
         horizontalVelocity = clampDouble(c.getDouble("animation.horizontal-velocity", 0.12), 0.0, 1.0);
@@ -87,9 +98,20 @@ public final class Settings {
         particleInterval = clampInt(c.getInt("animation.particle-interval", 2), 1, 20);
         sounds = c.getBoolean("animation.sounds", true);
         soundInterval = clampInt(c.getInt("animation.sound-interval", 8), 1, 40);
+        fallDurationTicks = clampInt(c.getInt("animation.fall-duration-ticks", 24), 8, 100);
+        fallAngleDegrees = clampDouble(c.getDouble("animation.fall-angle-degrees", 88.0), 45.0, 90.0);
+        fallDistance = clampDouble(c.getDouble("animation.fall-distance", 0.6), 0.0, 3.0);
 
         useFortune = c.getBoolean("drop.use-fortune", true);
         useSilkTouch = c.getBoolean("drop.use-silk-touch", true);
+        leavesEnabled = c.getBoolean("drop.leaves.enabled", true);
+        leavesAmount = clampInt(c.getInt("drop.leaves.amount", 10), 0, 64);
+        sticksEnabled = c.getBoolean("drop.sticks.enabled", true);
+        sticksAmount = clampInt(c.getInt("drop.sticks.amount", 3), 0, 64);
+        saplingsEnabled = c.getBoolean("drop.saplings.enabled", true);
+        saplingsAmount = clampInt(c.getInt("drop.saplings.amount", 1), 0, 64);
+        fruitsEnabled = c.getBoolean("drop.fruits.enabled", true);
+        fruitsAmount = clampInt(c.getInt("drop.fruits.amount", 1), 0, 64);
         stickChance = clamp01(c.getDouble("drop.chance.stick", 0.02));
         saplingChance = clamp01(c.getDouble("drop.chance.sapling", 0.05));
 
