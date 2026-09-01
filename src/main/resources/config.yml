@@ -30,12 +30,16 @@ animation:
   adaptive: false
   busy-threshold: 8
   directional-fall: true
+  # true = every tree chooses a new random horizontal direction
+  # (forward/back/left/right/diagonal). false = tree falls toward player view.
+  random-direction: true
   horizontal-velocity: 0.12
   upward-velocity: 0.02
   random-spread: 0.025
   fall-duration-ticks: 28
   fall-angle-degrees: 88.0
-  fall-distance: 0.6
+  # Extra horizontal movement of the whole tree during the fall.
+  fall-distance: 2.0
   particles: true
   particle-interval: 2
   sounds: true
