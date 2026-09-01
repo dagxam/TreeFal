@@ -14,14 +14,10 @@ public final class TreeDetector {
 
     private TreeDetector() {}
 
-    /** Finds the lowest supported log belonging to the tree hit by the player. */
     public static Block findTrunkBottom(Block start) {
         Block direct = walkDownLogs(start, 128);
         Block best = direct;
         int bestY = direct.getY();
-
-        // A hit can be on a branch. Search the complete normal tree height,
-        // not only eight blocks, for a supported log that can be the trunk base.
         int maxSearch = 64;
         for (int dy = 0; dy <= maxSearch; dy++) {
             Block level = start.getRelative(0, -dy, 0);
@@ -30,24 +26,9 @@ public final class TreeDetector {
                     Block candidate = level.getRelative(dx, 0, dz);
                     if (!Tag.LOGS.isTagged(candidate.getType())) continue;
                     if (!hasGroundOrTrunkSupport(candidate)) continue;
-
                     if (candidate.getY() < bestY) {
                         best = candidate;
                         bestY = candidate.getY();
-                    }
-                }
-            }
-        }
-
-        if (is2x2Trunk(best)) {
-            Material material = best.getType();
-            for (int dx = -1; dx <= 0; dx++) {
-                for (int dz = -1; dz <= 0; dz++) {
-                    Block candidate = best.getRelative(dx, 0, dz);
-                    if (isExact2x2At(candidate, material)) {
-                        if (candidate.getX() < best.getX() || candidate.getZ() < best.getZ()) {
-                            best = candidate;
-                        }
                     }
                 }
             }
@@ -82,11 +63,7 @@ public final class TreeDetector {
     }
 
     public static boolean hasSideLogsAtBase(Block base) {
-        if (is2x2Trunk(base)) return false;
-        // Side logs are allowed when they are part of the same connected tree;
-        // the old hard rejection caused some naturally grown trees to fall back
-        // to vanilla one-block breaking.
-        return false;
+        return is2x2Trunk(base);
     }
 
     public static boolean is2x2Trunk(Block base) {
@@ -192,6 +169,23 @@ public final class TreeDetector {
             }
         }
         return new TreeBlocks(logs, leaves, !queue.isEmpty());
+    }
+
+    /**
+     * Returns only the part of the tree at and above the block the player cut.
+     * Lower trunk blocks remain untouched in the world.
+     */
+    public static TreeBlocks sliceFromCut(TreeBlocks fullTree, Block cutBlock) {
+        int cutY = cutBlock.getY();
+        Set<Block> logs = new HashSet<>();
+        Set<Block> leaves = new HashSet<>();
+        for (Block block : fullTree.logs()) {
+            if (block.getY() >= cutY) logs.add(block);
+        }
+        for (Block block : fullTree.leaves()) {
+            if (block.getY() >= cutY) leaves.add(block);
+        }
+        return new TreeBlocks(logs, leaves, fullTree.truncated());
     }
 
     static boolean isLeafLike(Block block, Settings settings) {
