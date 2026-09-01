@@ -14,7 +14,9 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 public final class TreeAnimator {
@@ -41,14 +43,14 @@ public final class TreeAnimator {
             return;
         }
 
-        // Every real tree block is removed immediately so vanilla never breaks the
-        // tree one block at a time. The visual tree is represented by FallingBlocks.
-        List<Block> animated = allBlocks;
-        int maxAnimated = Math.min(animated.size(), settings.maxFallingBlocks);
+        // Capture BlockData BEFORE replacing the real blocks with air. The old
+        // implementation read BlockData after setType(AIR), which produced AIR
+        // FallingBlocks and made the animation appear to do nothing.
+        Map<Block, BlockData> originalData = new HashMap<>();
+        for (Block block : allBlocks) originalData.put(block, block.getBlockData().clone());
 
-        // Keep the complete tree data for rewards, but cap visual entities only if
-        // the configured safety limit is reached. Logs always get visual priority.
-        List<Block> visualBlocks = new ArrayList<>(maxAnimated);
+        int maxAnimated = Math.min(allBlocks.size(), settings.maxFallingBlocks);
+        List<Block> visualBlocks = new ArrayList<>(allBlocks.size());
         for (Block block : falling.logs()) {
             if (visualBlocks.size() >= maxAnimated) break;
             visualBlocks.add(block);
@@ -58,24 +60,27 @@ public final class TreeAnimator {
             visualBlocks.add(block);
         }
 
-        for (Block block : animated) {
+        // Remove every block in the falling slice immediately. Blocks below the
+        // cut point were never included and therefore remain untouched.
+        for (Block block : allBlocks) {
             if (block.getType() != Material.AIR) block.setType(Material.AIR, false);
         }
 
         Vector direction = fallDirection.clone().setY(0);
         if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
-        direction.normalize();
+        else direction.normalize();
 
-        // Rotation axis is perpendicular to the fall direction. A negative angle
-        // rotates the vertical trunk toward the direction the player is facing.
         Vector axis = new Vector(-direction.getZ(), 0, direction.getX()).normalize();
-        Location pivot = center.clone().add(0.5, 0.0, 0.5);
+        Location pivot = center.clone();
         List<VisualBlock> visuals = new ArrayList<>(visualBlocks.size());
 
         for (Block block : visualBlocks) {
-            BlockData data = block.getBlockData();
-            Vector relative = block.getLocation().add(0.5, 0.5, 0.5).toVector().subtract(pivot.toVector());
-            FallingBlock entity = world.spawnFallingBlock(block.getLocation().add(0.5, 0.5, 0.5), data);
+            BlockData data = originalData.get(block);
+            if (data == null) continue;
+            Vector relative = block.getLocation().add(0.5, 0.5, 0.5).toVector()
+                    .subtract(pivot.toVector());
+            FallingBlock entity = world.spawnFallingBlock(
+                    block.getLocation().add(0.5, 0.5, 0.5), data);
             entity.setDropItem(false);
             entity.setCancelDrop(true);
             entity.setHurtEntities(false);
@@ -100,39 +105,43 @@ public final class TreeAnimator {
                 try {
                     tick++;
                     double progress = Math.min(1.0, tick / (double) duration);
-                    // Smooth cubic ease-out: starts gently, accelerates, then settles.
-                    double eased = 1.0 - Math.pow(1.0 - progress, 3.0);
+                    // Smoothstep gives a natural slow start and slow landing.
+                    double eased = progress * progress * (3.0 - 2.0 * progress);
                     double angle = Math.toRadians(settings.fallAngleDegrees) * eased;
                     double drift = settings.fallDistance * eased;
 
-                    boolean impact = progress >= 1.0;
                     for (VisualBlock visual : visuals) {
                         if (!visual.entity.isValid()) continue;
                         Vector rotated = rotate(visual.relative, finalAxis, -angle);
-                        Vector position = pivot.toVector().add(rotated).add(finalDirection.clone().multiply(drift));
-                        Location target = new Location(world, position.getX(), position.getY(), position.getZ());
-                        visual.entity.teleport(target);
+                        Vector position = pivot.toVector().add(rotated)
+                                .add(finalDirection.clone().multiply(drift));
+                        visual.entity.teleport(new Location(world,
+                                position.getX(), position.getY(), position.getZ()));
                     }
 
                     if (settings.particles && tick % Math.max(1, settings.particleInterval) == 0) {
                         Location effect = pivot.clone().add(finalDirection.clone().multiply(drift));
-                        world.spawnParticle(Particle.CLOUD, effect, 3, 0.35, 0.2, 0.35, 0.015);
+                        world.spawnParticle(Particle.CLOUD, effect, 3,
+                                0.35, 0.2, 0.35, 0.015);
                     }
 
-                    if (settings.sounds && tick % Math.max(1, settings.soundInterval) == 0 && progress < 0.9) {
+                    if (settings.sounds && tick % Math.max(1, settings.soundInterval) == 0
+                            && progress < 0.9) {
                         world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 0.45f,
                                 0.8f + random.nextFloat() * 0.25f);
                     }
 
-                    if (impact) {
+                    if (progress >= 1.0) {
                         if (!rewardsGiven) {
                             rewardsGiven = true;
-                            giveRewards(plugin, world, pivot.clone().add(finalDirection.clone().multiply(settings.fallDistance)),
-                                    drops, player, toolSlot, toolSnapshot, falling, random);
-                            if (settings.sounds) world.playSound(pivot, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
+                            Location impact = pivot.clone().add(
+                                    finalDirection.clone().multiply(settings.fallDistance));
+                            giveRewards(plugin, world, impact, drops, player, toolSlot,
+                                    toolSnapshot, falling, random);
+                            if (settings.sounds) world.playSound(impact,
+                                    Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
                             if (settings.particles) world.spawnParticle(Particle.CLOUD,
-                                    pivot.clone().add(finalDirection.clone().multiply(settings.fallDistance)),
-                                    18, 0.8, 0.2, 0.8, 0.04);
+                                    impact, 18, 0.8, 0.2, 0.8, 0.04);
                         }
 
                         for (VisualBlock visual : visuals) {
@@ -193,7 +202,7 @@ public final class TreeAnimator {
     }
 
     private static void dropScattered(World world, Location center,
-                                      java.util.Map<Material, Integer> items,
+                                      Map<Material, Integer> items,
                                       double radius, Random random) {
         for (var entry : items.entrySet()) {
             int left = entry.getValue();
