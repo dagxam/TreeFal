@@ -5,15 +5,12 @@ import org.bukkit.block.Block;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
 public final class TreeDropCalculator {
-
     private TreeDropCalculator() {}
 
     public record DropResult(
@@ -22,7 +19,8 @@ public final class TreeDropCalculator {
             int sticks,
             Material saplingType,
             int saplings,
-            int apples
+            Material fruitType,
+            int fruits
     ) {}
 
     public static DropResult calculate(TreeFallPlugin plugin,
@@ -30,88 +28,50 @@ public final class TreeDropCalculator {
                                        String season,
                                        Settings settings,
                                        ItemStack tool) {
-        Random random = plugin.random;
-        int leafCount = falling.leaves().size();
-        boolean bigPart = leafCount >= Settings.BIG_TREE_LEAVES;
-
         Material leafSample = TreeDetector.getAnyLeafMaterial(falling);
         Material saplingType = TreeDetector.getSaplingForLeaf(leafSample);
-        boolean appleTree = leafSample == Material.OAK_LEAVES || leafSample == Material.DARK_OAK_LEAVES;
-
-        int fortune = settings.useFortune && tool != null
-                ? tool.getEnchantmentLevel(Enchantment.FORTUNE) : 0;
+        Material fruitType = getFruitForLeaf(leafSample);
         boolean silkTouch = settings.useSilkTouch && tool != null
                 && tool.containsEnchantment(Enchantment.SILK_TOUCH);
+        int fortune = settings.useFortune && tool != null
+                ? tool.getEnchantmentLevel(Enchantment.FORTUNE) : 0;
 
-        Map<Material, Integer> leafDrops = new HashMap<>();
+        Map<Material, Integer> logs = new HashMap<>();
+        for (Block block : falling.logs()) logs.merge(block.getType(), 1, Integer::sum);
+
+        Map<Material, Integer> leaves = new HashMap<>();
         if (silkTouch) {
-            for (Block block : falling.leaves()) {
-                leafDrops.merge(block.getType(), 1, Integer::sum);
-            }
-        } else {
-            int leafDropTarget = computeLeafDropTarget(leafCount);
-            boolean winter = season != null && season.equals("WINTER");
-            if (season != null && (season.equals("AUTUMN") || season.equals("FALL"))) {
-                leafDropTarget = Math.min(leafDropTarget + 6, 26);
-            }
-            if (winter) leafDropTarget = Math.max(0, leafDropTarget - 8);
-
-            List<Block> leafList = new ArrayList<>(falling.leaves());
-            Collections.shuffle(leafList, random);
-            int take = Math.min(leafDropTarget, leafList.size());
-            for (int i = 0; i < take; i++) {
-                leafDrops.merge(leafList.get(i).getType(), 1, Integer::sum);
-            }
+            for (Block block : falling.leaves()) leaves.merge(block.getType(), 1, Integer::sum);
+        } else if (settings.leavesEnabled && settings.leavesAmount > 0 && leafSample != null) {
+            int amount = applyFortune(settings.leavesAmount, fortune);
+            leaves.put(leafSample, Math.min(64, amount));
         }
 
-        Map<Material, Integer> logDrops = new HashMap<>();
-        for (Block block : falling.logs()) logDrops.merge(block.getType(), 1, Integer::sum);
+        int sticks = settings.sticksEnabled ? settings.sticksAmount : 0;
+        int saplings = settings.saplingsEnabled && saplingType != null ? settings.saplingsAmount : 0;
+        int fruits = settings.fruitsEnabled && fruitType != null ? settings.fruitsAmount : 0;
 
-        int sticks = 0;
-        int saplings = 0;
-        int apples = 0;
-        if (!silkTouch) {
-            double fortuneMultiplier = 1.0 + (fortune * 0.5);
-            sticks = calculateAggregatedAmount(random, leafCount,
-                    settings.stickChance * fortuneMultiplier, 1, 3 + Math.min(3, fortune));
-            if (saplingType != null) {
-                saplings = calculateAggregatedAmount(random, leafCount,
-                        settings.saplingChance * fortuneMultiplier, 1, 3 + Math.min(3, fortune));
-                if (season != null && season.equals("SPRING") && saplings > 0) saplings++;
-                saplings = Math.min(6, saplings);
-            }
-            if (appleTree && season != null && !season.equals("WINTER")) {
-                apples = bigPart ? 5 : 3;
-                if (season.equals("SUMMER")) apples = Math.min(6, apples + 1);
-                apples = Math.min(8, (int) Math.ceil(apples * fortuneMultiplier));
-            } else if (appleTree && season == null) {
-                apples = bigPart ? 5 : 3;
-                apples = Math.min(8, (int) Math.ceil(apples * fortuneMultiplier));
-            }
+        // Silk Touch gives the actual leaves and suppresses bonus drops.
+        if (silkTouch) {
+            sticks = 0;
+            saplings = 0;
+            fruits = 0;
+        } else if (fortune > 0) {
+            sticks = applyFortune(sticks, fortune);
+            saplings = applyFortune(saplings, fortune);
+            fruits = applyFortune(fruits, fortune);
         }
 
-        return new DropResult(leafDrops, logDrops, sticks, saplingType, saplings, apples);
+        return new DropResult(leaves, logs, sticks, saplingType, saplings, fruitType, fruits);
     }
 
-    private static int computeLeafDropTarget(int leafCount) {
-        if (leafCount <= 0) return 0;
-        int min = 10;
-        int max = 20;
-        int low = 40;
-        int high = 160;
-        if (leafCount <= low) return Math.min(min, leafCount);
-        if (leafCount >= high) return Math.min(max, leafCount);
-        double t = (leafCount - low) / (double) (high - low);
-        int target = (int) Math.round(min + t * (max - min));
-        return Math.min(max, Math.max(min, target));
+    private static int applyFortune(int amount, int fortune) {
+        if (amount <= 0) return 0;
+        return Math.min(64, amount + fortune);
     }
 
-    private static int calculateAggregatedAmount(Random random, int leafCount,
-                                                 double chancePerLeaf, int min, int max) {
-        if (leafCount <= 0 || chancePerLeaf <= 0) return 0;
-        double expected = leafCount * chancePerLeaf;
-        int base = (int) Math.floor(expected);
-        if (random.nextDouble() < expected - base) base++;
-        return Math.max(min, Math.min(max, base));
+    private static Material getFruitForLeaf(Material leaf) {
+        if (leaf == Material.OAK_LEAVES || leaf == Material.DARK_OAK_LEAVES) return Material.APPLE;
+        return null;
     }
 }
