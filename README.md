@@ -1,87 +1,163 @@
-# TreeFall
+# 🌲 TreeFall
 
-TreeFall is a Paper plugin that makes supported Minecraft trees fall as a visual animation when a player cuts the trunk.
+TreeFall — Paper-плагин для реалистичной рубки деревьев. При срубании подходящего ствола дерево целиком обрабатывается как единая структура и визуально падает в сторону взгляда игрока.
 
-## Supported platform
+## ✨ Возможности
 
-- Paper 1.21.1+
-- Java 21+
-- Built against Paper API 1.21.1
-- Optional WorldGuard integration
-- Optional RealisticSeasons integration
+- 🌳 Автоматическое определение цельного дерева.
+- 🪵 Поддержка обычных и 2×2 стволов без жёсткой привязки к породе.
+- 🍃 Использование Bukkit `Tag.LEAVES` вместо ненадёжного поиска материалов по имени.
+- 🛡️ Безопасная обработка слишком больших или необычно соединённых структур.
+- 🔒 Защита WorldGuard с проверкой всех затрагиваемых блоков до начала разрушения.
+- 🍂 Необязательная интеграция с RealisticSeasons.
+- 🪓 Учитывается состояние исходного инструмента и Unbreaking.
+- ✨ Silk Touch для листьев и Fortune для дополнительных дропов.
+- 🎬 Анимация через ограниченное количество `FallingBlock`.
+- 🚀 Адаптивное уменьшение количества визуальных entity при большом числе одновременно падающих деревьев.
+- 🧭 Направление падения зависит от взгляда игрока.
+- 💨 Настраиваемые скорость, разброс, частицы и звуки.
+- 🎁 Дроп создаётся сразу после принятия операции, поэтому визуальная анимация не блокирует награды.
+- ⏱️ Защита от повторной обработки одного дерева и быстрых повторных срабатываний.
+- 🌍 Чёрный список миров.
+- ⚙️ Полностью настраиваемый конфиг.
 
-## Main features
+## 📦 Требования
 
-- Whole-tree detection using logs and natural leaves.
-- Support for normal and 2×2 trunks.
-- Shift-click can disable TreeFall for a single action.
-- Optional axe requirement for large trees.
-- Per-player cooldown and active-tree locking to prevent double processing.
-- Protection-aware WorldGuard integration.
-- Optional seasonal drop adjustments through RealisticSeasons.
-- FallingBlock visual animation with a configurable entity limit.
-- Directional falling based on the player's facing direction.
-- Higher parts of the tree receive stronger horizontal movement for a more coherent fall.
-- Configurable particles, sounds, velocity and random spread.
-- The animation limit never discards the detected tree's drops.
-- Oversized or suspiciously connected structures are skipped instead of being partially destroyed.
-- Tool durability respects Unbreaking and is applied only to the original tool slot.
-- World blacklist and bypass permission.
+- **Paper 26.2+**
+- **Java 26+**
+- Собирается против актуального Paper API из `pom.xml`.
 
-## Commands
+WorldGuard и RealisticSeasons являются необязательными интеграциями.
 
-`/treefall reload`
+## 🎮 Использование
 
-Reloads `config.yml`.
+Обычная рубка подходящего дерева автоматически запускает TreeFall.
 
-## Permissions
+- **Shift + ломание** — временно отключает TreeFall для текущего действия, если функция включена.
+- **Creative** — TreeFall не запускается.
+- Минимальная высота ствола и остальные ограничения задаются в конфиге.
 
-- `treefall.use` — allows using TreeFall. Default: true.
-- `treefall.bypass` — bypasses the TreeFall mechanic. Default: op.
-- `treefall.admin` — allows `/treefall reload`. Default: op.
+## 🛡️ Безопасность
 
-## Configuration
+TreeFall сначала определяет структуру дерева, затем проверяет её целостность и только после этого отменяет исходный `BlockBreakEvent`.
 
-The generated `config.yml` contains comments and safe defaults. Important settings include:
+Если WorldGuard установлен, проверяется не только исходный блок, но и все логи/листья, которые TreeFall собирается удалить. При ошибке проверки защита работает по принципу **fail-closed** — операция отменяется.
 
-- `enabled`
-- `authorization.require-permission`
-- `authorization.bypass-permission`
-- `sneak-to-disable`
-- `require-axe-for-big`
-- `min-trunk-height`
-- `max-blocks`
-- `cooldown-ms`
-- `world-blacklist`
-- `animation.max-falling-blocks`
-- `animation.blocks-per-tick`
-- `animation.tick-delay`
-- `animation.timeout-ticks`
-- `animation.directional-fall`
-- `animation.horizontal-velocity`
-- `animation.upward-velocity`
-- `animation.random-spread`
-- `animation.particles`
-- `animation.particle-interval`
-- `animation.sounds`
-- `animation.sound-interval`
-- `drop.chance.stick`
-- `drop.chance.sapling`
+Ограничение `max-falling-blocks` влияет только на визуальную анимацию. Оно не приводит к потере найденных блоков или дропа.
 
-Existing configurations using the old root-level `require-permission` setting remain compatible.
+## 🎬 Анимация
 
-## Safety behavior
+```yaml
+animation:
+  max-falling-blocks: 80
+  blocks-per-tick: 18
+  tick-delay: 1
+  timeout-ticks: 100
+  adaptive: true
+  busy-threshold: 8
+  directional-fall: true
+  horizontal-velocity: 0.12
+  upward-velocity: 0.02
+  random-spread: 0.025
+```
 
-TreeFall does not intentionally partially destroy a tree when its detection limit is reached. The detector retries with larger limits and skips the structure if it still cannot safely determine the complete connected tree.
+При большом количестве одновременно активных деревьев TreeFall автоматически уменьшает визуальный лимит, снижая нагрузку на сервер.
 
-The animation entity limit affects only visual FallingBlock entities. All detected blocks still contribute to the calculated drops, and non-animated blocks are safely removed as part of the same tree-fall operation.
+## 🎁 Дропы
 
-WorldGuard failures fail closed: if the WorldGuard API cannot be checked, TreeFall does not run for that block instead of bypassing protection.
+```yaml
+drop:
+  use-silk-touch: true
+  use-fortune: true
+  chance:
+    stick: 0.02
+    sapling: 0.05
+```
 
-## Installation
+- **Silk Touch** — листья сохраняются как блоки, дополнительные дропы листьев отключаются.
+- **Fortune** — увеличивает вторичные дропы в пределах настроенных ограничений.
+- Бревна сохраняются по фактическому количеству найденных логов.
+- RealisticSeasons может изменять дополнительные сезонные дропы.
 
-1. Build the project with Maven.
-2. Put the resulting JAR into the server's `plugins` directory.
-3. Start the Paper server.
-4. Edit `plugins/TreeFall/config.yml` if required.
-5. Use `/treefall reload` after configuration changes.
+## 🌲 Определение дерева
+
+Детектор использует:
+
+1. основной вертикальный ствол;
+2. лицевое соединение для логов, чтобы диагонально расположенные стволы не объединялись случайно;
+3. расширенное соединение для естественных листьев;
+4. ограничение горизонтальной и вертикальной дистанции;
+5. отдельную проверку 2×2 стволов.
+
+Настройки:
+
+```yaml
+tree-detection:
+  ignore-persistent-leaves: true
+  max-horizontal-distance: 12
+  max-vertical-distance: 48
+```
+
+## 🔐 Permissions
+
+| Permission | Назначение | Default |
+|---|---|---|
+| `treefall.use` | Использование TreeFall | `true` |
+| `treefall.bypass` | Полностью обойти механику TreeFall | `op` |
+| `treefall.admin` | `/treefall reload` | `op` |
+
+## 💻 Команды
+
+```text
+/treefall reload
+```
+
+Перезагружает `config.yml`.
+
+## 🌦️ RealisticSeasons
+
+Если установлен RealisticSeasons и его API доступен, TreeFall получает текущий сезон и корректирует дополнительные дропы.
+
+Без RealisticSeasons плагин продолжает работать самостоятельно.
+
+## 🛡️ WorldGuard
+
+При обнаружении WorldGuard TreeFall проверяет право игрока на разрушение исходного блока и всей найденной структуры дерева.
+
+Если проверка API завершается ошибкой, TreeFall отказывается от операции, чтобы не обойти защиту региона.
+
+## ⚙️ Основные настройки
+
+```yaml
+enabled: true
+min-trunk-height: 4
+max-blocks: 512
+cooldown-ms: 500
+world-blacklist: []
+```
+
+Полный список параметров находится в автоматически созданном `config.yml`.
+
+## 🔄 Обновление
+
+После замены JAR перезапустите сервер. После изменения конфига используйте:
+
+```text
+/treefall reload
+```
+
+## 🧱 Сборка
+
+Проект собирается через Maven:
+
+```bash
+mvn clean package
+```
+
+Готовый JAR появится в `target/`.
+
+GitHub Actions автоматически выполняет очистку, компиляцию и сборку JAR на Java 26.
+
+## 📄 Версия
+
+**TreeFall 1.6.0**
