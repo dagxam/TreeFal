@@ -1,5 +1,5 @@
 # TreeFall Configuration
-# All technical commands stay in English; messages are configurable below.
+# Technical commands stay in English; messages are configurable below.
 
 enabled: true
 
@@ -15,28 +15,41 @@ max-blocks: 512
 cooldown-ms: 500
 world-blacklist: []
 
+tree-detection:
+  # Persistent/player-placed leaves are ignored by default.
+  ignore-persistent-leaves: true
+  # Safety limits for a single connected tree structure.
+  max-horizontal-distance: 12
+  max-vertical-distance: 48
+
 animation:
-  # Maximum FallingBlock entities used at once for visual animation.
-  # The complete tree is still processed and its drops are preserved.
+  # Visual FallingBlock limit. Detected blocks are never lost because of this limit.
   max-falling-blocks: 80
   blocks-per-tick: 18
   tick-delay: 1
   timeout-ticks: 100
 
+  # Reduce visual entity count automatically when many TreeFall animations are active.
+  adaptive: true
+  busy-threshold: 8
+
   # Push the tree in the direction the player is looking.
-  # Higher blocks receive more horizontal velocity, creating a unified fall.
   directional-fall: true
   horizontal-velocity: 0.12
   upward-velocity: 0.02
   random-spread: 0.025
 
-  # Extra visual effects.
   particles: true
   particle-interval: 2
   sounds: true
   sound-interval: 8
 
 drop:
+  # Silk Touch makes all detected natural leaves drop as leaf blocks and disables
+  # sapling/stick/apple bonus drops, matching the intended vanilla behavior.
+  use-silk-touch: true
+  # Fortune increases the chance/amount of secondary leaf drops.
+  use-fortune: true
   chance:
     stick: 0.02
     sapling: 0.05
@@ -45,4 +58,4 @@ messages:
   no-permission: "§cУ вас нет прав."
   reload: "§aКонфигурация TreeFall перезагружена."
   usage: "§eИспользование: /treefall reload"
-  worldguard-error: "§cНе удалось проверить защиту WorldGuard. TreeFall отключён для этой операции."
+  worldguard-error: "§cTreeFall отменён: дерево пересекает защищённую область."
