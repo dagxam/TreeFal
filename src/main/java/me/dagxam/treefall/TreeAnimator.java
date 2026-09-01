@@ -42,7 +42,7 @@ public final class TreeAnimator {
 
         double spread = falling.leaves().size() >= Settings.BIG_TREE_LEAVES ? 3.5 : 1.8;
         int configuredLimit = settings.maxFallingBlocks;
-        if (settings.adaptiveAnimation && plugin.activeTreeCount() >= settings.busyAnimationThreshold) {
+        if (settings.adaptiveAnimation && plugin.activeTreeCount() > settings.busyAnimationThreshold) {
             configuredLimit = Math.max(10, configuredLimit / 2);
         }
         int maxAnimated = Math.min(allBlocks.size(), configuredLimit);
@@ -53,8 +53,6 @@ public final class TreeAnimator {
         logs.sort((a, b) -> Integer.compare(b.getY(), a.getY()));
         leaves.sort((a, b) -> Integer.compare(b.getY(), a.getY()));
 
-        // Always prioritize logs so the trunk is visibly falling even when the
-        // entity budget is reached on a large canopy.
         for (Block block : logs) {
             if (animated.size() >= maxAnimated) break;
             animated.add(block);
@@ -64,6 +62,8 @@ public final class TreeAnimator {
             animated.add(block);
         }
 
+        // Blocks outside the visual entity budget disappear immediately, while
+        // all important trunk blocks are always animated first.
         Set<Block> animatedSet = new HashSet<>(animated);
         for (Block block : allBlocks) {
             if (!animatedSet.contains(block)) block.setType(Material.AIR, false);
@@ -79,6 +79,7 @@ public final class TreeAnimator {
         if (settings.sounds) world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.15f, 0.55f);
 
         final Vector finalDirection = direction;
+        final int groundY = minY;
         new BukkitRunnable() {
             private int index;
             private long ticks;
@@ -91,13 +92,12 @@ public final class TreeAnimator {
             public void run() {
                 try {
                     ticks++;
-                    int batch = settings.animBlocksPerTick;
+                    int batch = Math.max(1, settings.animBlocksPerTick);
                     int processed = 0;
 
                     while (index < animated.size() && processed < batch) {
                         Block block = animated.get(index++);
-                        Material type = block.getType();
-                        if (type == Material.AIR) {
+                        if (block.getType() == Material.AIR) {
                             processed++;
                             continue;
                         }
@@ -109,6 +109,7 @@ public final class TreeAnimator {
                         FallingBlock entity = world.spawnFallingBlock(spawnLocation, data);
                         entity.setDropItem(false);
                         entity.setHurtEntities(false);
+                        entity.setGravity(true);
                         entity.addScoreboardTag(TreeFallPlugin.FALLING_TAG);
 
                         double heightFactor = Math.max(0.25,
@@ -117,9 +118,9 @@ public final class TreeAnimator {
                                 ? settings.horizontalVelocity * heightFactor : 0.0;
 
                         Vector velocity = finalDirection.clone().multiply(horizontal);
-                        // Give the tree an actual downward start while retaining
-                        // the configurable upward component for the visual arc.
-                        velocity.setY(Math.min(settings.upwardVelocity, 0.02));
+                        // Always start downward. Gravity then produces the visible
+                        // falling arc instead of leaving blocks suspended.
+                        velocity.setY(-0.08 + Math.min(settings.upwardVelocity, 0.02));
                         velocity.add(new Vector(
                                 (random.nextDouble() - 0.5) * settings.randomSpread,
                                 0,
@@ -130,11 +131,16 @@ public final class TreeAnimator {
                         processed++;
                     }
 
-                    // EntityChangeBlockEvent is cancelled by TreeFallPlugin so
-                    // visual blocks never become real blocks. Here we own the
-                    // lifecycle and detect the first actual landing.
+                    // EntityChangeBlockEvent is cancelled so FallingBlocks can
+                    // never place real blocks. Detect the first visual impact by
+                    // either Bukkit's ground state or reaching the original base
+                    // level. This is reliable even when another plugin cancels
+                    // the entity-change event.
                     for (FallingBlock entity : entities) {
-                        if (entity.isValid() && entity.isOnGround()) {
+                        if (!entity.isValid()) continue;
+                        if (entity.isOnGround()
+                                || (entity.getVelocity().getY() <= 0
+                                && entity.getLocation().getY() <= groundY + 0.8)) {
                             landed = true;
                             break;
                         }
@@ -144,42 +150,30 @@ public final class TreeAnimator {
                         rewardsGiven = true;
                         giveRewards(plugin, world, center, drops, player, toolSlot,
                                 toolSnapshot, falling, spread, random);
-                        if (settings.sounds) {
-                            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
-                            world.spawnParticle(Particle.CLOUD,
-                                    center.clone().add(0.5, 0.35, 0.5),
-                                    14, 0.7, 0.2, 0.7, 0.035);
-                        }
-                        cleanupAt = ticks + 2L;
+                        playLandingEffect(settings, world, center);
+                        cleanupAt = ticks + 3L;
                     }
 
-                    if (settings.particles && ticks % settings.particleInterval == 0) {
+                    if (settings.particles && ticks % Math.max(1, settings.particleInterval) == 0) {
                         Location effect = center.clone().add(0.5, 0.8, 0.5);
                         world.spawnParticle(Particle.CLOUD, effect, 3, 0.35, 0.25, 0.35, 0.015);
                         world.spawnParticle(Particle.CRIT, effect, 2, 0.3, 0.3, 0.3, 0.02);
                     }
 
-                    if (settings.sounds && ticks % settings.soundInterval == 0 && index < animated.size()) {
+                    if (settings.sounds && ticks % Math.max(1, settings.soundInterval) == 0 && index < animated.size()) {
                         world.playSound(center, Sound.BLOCK_WOOD_BREAK, 0.55f,
                                 0.85f + random.nextFloat() * 0.25f);
                     }
 
-                    if (index >= animated.size() && cleanupAt < 0L) {
-                        // Some FallingBlocks may have their landing event cancelled
-                        // before Bukkit reports isOnGround(). Do not lose drops:
-                        // consider the animation complete as the fallback landing.
-                        if (!rewardsGiven && ticks >= 12L) {
-                            rewardsGiven = true;
-                            giveRewards(plugin, world, center, drops, player, toolSlot,
-                                    toolSnapshot, falling, spread, random);
-                            if (settings.sounds) {
-                                world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
-                                world.spawnParticle(Particle.CLOUD,
-                                        center.clone().add(0.5, 0.35, 0.5),
-                                        14, 0.7, 0.2, 0.7, 0.035);
-                            }
-                            cleanupAt = ticks + 2L;
-                        }
+                    // If the entity physics/landing event is suppressed, never
+                    // lose the player's loot. Wait long enough for a visible fall
+                    // and then use the same landing/reward path.
+                    if (index >= animated.size() && !rewardsGiven && ticks >= Math.max(20L, height * 2L)) {
+                        rewardsGiven = true;
+                        giveRewards(plugin, world, center, drops, player, toolSlot,
+                                toolSnapshot, falling, spread, random);
+                        playLandingEffect(settings, world, center);
+                        cleanupAt = ticks + 3L;
                     }
 
                     if (ticks >= settings.animationTimeoutTicks) {
@@ -203,7 +197,7 @@ public final class TreeAnimator {
                             giveRewards(plugin, world, center, drops, player, toolSlot,
                                     toolSnapshot, falling, spread, random);
                         } catch (Throwable ignored) {
-                            // Keep the cleanup path alive even if a reward operation fails.
+                            // Preserve cleanup even if a reward operation fails.
                         }
                     }
                     removeRemainingBlocks(animated, index);
@@ -219,7 +213,18 @@ public final class TreeAnimator {
                 for (FallingBlock entity : entities) if (entity.isValid()) entity.remove();
                 entities.clear();
             }
-        }.runTaskTimer(plugin, 0L, settings.animTickDelay);
+        }.runTaskTimer(plugin, 0L, Math.max(1L, settings.animTickDelay));
+    }
+
+    private static void playLandingEffect(Settings settings, World world, Location center) {
+        if (settings.sounds) {
+            world.playSound(center, Sound.BLOCK_WOOD_BREAK, 1.25f, 0.65f);
+        }
+        if (settings.particles) {
+            world.spawnParticle(Particle.CLOUD,
+                    center.clone().add(0.5, 0.35, 0.5),
+                    14, 0.7, 0.2, 0.7, 0.035);
+        }
     }
 
     private static void removeRemainingBlocks(List<Block> blocks, int fromIndex) {
