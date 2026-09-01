@@ -6,7 +6,6 @@ authorization:
   require-permission: false
   bypass-permission: treefall.bypass
 
-# Sneaking no longer disables TreeFall by default.
 sneak-to-disable: false
 damage-tool: true
 require-axe-for-big: false
@@ -20,19 +19,23 @@ tree-detection:
   max-horizontal-distance: 12
   max-vertical-distance: 48
 
+# Smooth synchronized fall animation.
+# All detected tree blocks are removed from the world immediately and represented
+# by visual FallingBlock entities. They rotate together and land as one tree.
 animation:
-  # Up to 300 blocks can be animated. Remaining blocks are still removed and
-  # their drops are preserved, preventing the tree from leaving blocks behind.
-  max-falling-blocks: 300
-  blocks-per-tick: 18
+  max-falling-blocks: 1000
+  blocks-per-tick: 1000
   tick-delay: 1
-  timeout-ticks: 100
+  timeout-ticks: 140
   adaptive: false
   busy-threshold: 8
   directional-fall: true
   horizontal-velocity: 0.12
   upward-velocity: 0.02
   random-spread: 0.025
+  fall-duration-ticks: 24
+  fall-angle-degrees: 88.0
+  fall-distance: 0.6
   particles: true
   particle-interval: 2
   sounds: true
@@ -41,6 +44,23 @@ animation:
 drop:
   use-silk-touch: true
   use-fortune: true
+
+  # Exact quantities created when the tree hits the ground.
+  # Logs are always dropped according to the number of detected log blocks.
+  leaves:
+    enabled: true
+    amount: 10
+  sticks:
+    enabled: true
+    amount: 3
+  saplings:
+    enabled: true
+    amount: 1
+  fruits:
+    enabled: true
+    amount: 1
+
+  # Kept for compatibility with older configurations.
   chance:
     stick: 0.02
     sapling: 0.05
