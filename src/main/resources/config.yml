@@ -10,7 +10,7 @@ sneak-to-disable: false
 damage-tool: true
 require-axe-for-big: false
 min-trunk-height: 1
-max-blocks: 512
+max-blocks: 5000
 cooldown-ms: 500
 world-blacklist: []
 
@@ -19,8 +19,11 @@ tree-detection:
   max-horizontal-distance: 12
   max-vertical-distance: 48
 
+# The whole falling part is represented by real block-textured FallingBlocks.
+# Breaking the bottom log makes the whole tree above it fall.
+# Breaking a higher log leaves everything below that cut untouched.
 animation:
-  max-falling-blocks: 1000
+  max-falling-blocks: 5000
   blocks-per-tick: 1000
   tick-delay: 1
   timeout-ticks: 140
@@ -30,7 +33,7 @@ animation:
   horizontal-velocity: 0.12
   upward-velocity: 0.02
   random-spread: 0.025
-  fall-duration-ticks: 24
+  fall-duration-ticks: 28
   fall-angle-degrees: 88.0
   fall-distance: 0.6
   particles: true
@@ -42,13 +45,11 @@ drop:
   use-silk-touch: true
   use-fortune: true
 
-  # Сколько блоков листьев выдавать после падения дерева.
-  # Листья выдаются как настоящие блоки листьев.
+  # Real leaf blocks created after the falling part hits the ground.
   leaves:
     enabled: true
     amount: 10
 
-  # Случайное количество в указанном диапазоне.
   sticks:
     enabled: true
     min: 4
@@ -64,7 +65,6 @@ drop:
     min: 1
     max: 3
 
-  # Старые параметры оставлены для совместимости.
   chance:
     stick: 0.02
     sapling: 0.05
