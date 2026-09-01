@@ -124,27 +124,26 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
 
         if (worldGuardPresent && wgHook != null && !wgHook.canBreak(player, cutBlock)) return;
 
-        // IMPORTANT: build the tree from the block actually hit, not only from
-        // the guessed trunk bottom. A branch hit must still discover the complete
-        // sapling-grown tree. The bottom is used only for the tree identity and
-        // animation center after the structure has been successfully detected.
+        // The hit log is always the detection entry point. This is critical for
+        // sapling-grown trees because their generated trunk/canopy shape is not
+        // guaranteed to satisfy a fixed vertical-trunk heuristic.
         TreeBlocks fullTree;
         Block trunkBottom;
         try {
             fullTree = collectTreeWithRetry(cutBlock);
             if (fullTree.truncated() || fullTree.logs().isEmpty()) return;
 
-            // A valid TreeFall target needs more than the single block the player
-            // hit. Leaves are enough to identify a small natural tree, while a
-            // multi-log trunk/branch is also valid without a perfect canopy.
+            // Never fall back to vanilla one-block breaking merely because the
+            // tree has a short trunk or an unusual canopy. Two connected logs or
+            // one log with a natural leaf canopy are enough for TreeFall.
             if (fullTree.logs().size() < 2 && fullTree.leaves().isEmpty()) return;
 
             trunkBottom = TreeDetector.findTrunkBottom(cutBlock);
             if (!fullTree.logs().contains(trunkBottom)) {
-                // The broad base search can find an unrelated nearby tree. In that
-                // case use the lowest log belonging to this exact detected tree.
                 trunkBottom = fullTree.logs().stream()
-                        .min(java.util.Comparator.comparingInt(Block::getY))
+                        .min(java.util.Comparator.comparingInt(Block::getY)
+                                .thenComparingInt(Block::getX)
+                                .thenComparingInt(Block::getZ))
                         .orElse(cutBlock);
             }
         } catch (Throwable throwable) {
@@ -153,9 +152,11 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
             return;
         }
 
-        int trunkHeight = TreeDetector.measureTrunkHeight(trunkBottom);
+        int minY = fullTree.logs().stream().mapToInt(Block::getY).min().orElse(cutBlock.getY());
+        int maxY = fullTree.logs().stream().mapToInt(Block::getY).max().orElse(cutBlock.getY());
+        int detectedHeight = maxY - minY + 1;
         boolean hasAxe = player.getInventory().getItemInMainHand().getType().name().endsWith("_AXE");
-        if (settings.requireAxeForBig && !hasAxe && trunkHeight > 6) return;
+        if (settings.requireAxeForBig && !hasAxe && (detectedHeight > 6 || fullTree.logs().size() > 12)) return;
 
         String treeKey = TreeDetector.getTreeKey(trunkBottom);
         if (!activeTrees.add(treeKey)) {
@@ -170,8 +171,8 @@ public final class TreeFallPlugin extends JavaPlugin implements Listener {
                 return;
             }
 
-            // From this point TreeFall owns the block break. Vanilla must never
-            // get a chance to remove only the originally hit log.
+            // TreeFall now owns this BlockBreakEvent. This line is deliberately
+            // reached only after a valid multi-block tree has been detected.
             event.setCancelled(true);
             cooldowns.put(player.getUniqueId(), now);
 
