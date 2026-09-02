@@ -62,11 +62,22 @@ public final class TreeAnimator {
         Vector direction = fallDirection.clone().setY(0);
         if (direction.lengthSquared() < 0.001) direction = new Vector(0, 0, 1);
         else direction.normalize();
+
+        // Pick one of 8 natural directions relative to the player's view:
+        // forward, back, left, right and the four diagonals. A small jitter
+        // keeps the result from looking mechanically aligned every time.
         if (settings.randomFallDirection) {
-            double a = random.nextDouble() * Math.PI * 2.0;
-            double cos = Math.cos(a), sin = Math.sin(a);
-            direction = new Vector(direction.getX() * cos - direction.getZ() * sin,
-                    0, direction.getX() * sin + direction.getZ() * cos).normalize();
+            int sector = random.nextInt(8);
+            double sectorAngle = (Math.PI * 2.0 * sector) / 8.0;
+            double jitter = Math.toRadians(12.0);
+            double angle = sectorAngle + (random.nextDouble() * 2.0 - 1.0) * jitter;
+            double cos = Math.cos(angle);
+            double sin = Math.sin(angle);
+            direction = new Vector(
+                    direction.getX() * cos - direction.getZ() * sin,
+                    0,
+                    direction.getX() * sin + direction.getZ() * cos
+            ).normalize();
         }
 
         Vector axis = new Vector(-direction.getZ(), 0, direction.getX());
@@ -142,7 +153,6 @@ public final class TreeAnimator {
                                 0.8f + random.nextFloat() * 0.25f);
                     }
 
-                    // The animation is time based; terrain can never cancel it on tick 1.
                     if (progress >= 1.0 || tick >= timeout) {
                         if (!rewardsGiven) {
                             rewardsGiven = true;
